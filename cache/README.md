@@ -9,9 +9,18 @@
 ## 1. Роль Router
 Будем реализовывать логику хранилища аккаунтов. Это хранилище должно быть способно обрабатывать запросы на создание и удаление аккаунтов, чтение и обновление информации. 
 
+Начнем с создания приложения.
+
+```
+$ cartridge create --name cache 
+$ cd cache
+```
+
 Первым делом необходимо создать роль Router, которая будет принимать и обрабатывать запросы, обращаясь в кеш. 
 
-Для корректной работы подключим необходимые библиотеки
+Все роли лежат в `app/roles`.
+
+Для корректной работы подключим необходимые библиотеки.
 
 ```lua
 local vshard = require('vshard')
@@ -71,7 +80,7 @@ end
 
 Данная функция обращается к кешу и, если аккаунт создан, возвращает сообщение об успехе операции. 
 
-2) С `http_account_delete` удаляет аккаунт из хранилища.
+2) `http_account_delete` удаляет аккаунт из хранилища.
 
 ```lua
 local function http_account_delete(req)
@@ -126,8 +135,6 @@ local function http_account_delete(req)
     return resp
 end
 ```
-
-
 
 3)  `http_account_get` позволяет получить значение заданного поля аккаунта.
 
@@ -194,9 +201,7 @@ local function http_account_get(req)
 end
 ```
 
-
-
-4) `http_account_update` позволяет изменить значение заданного поля аккаунта.
+4) `http_account_update` изменяет значение заданного поля аккаунта.
 
 ```lua
 local function http_account_update(req)
@@ -390,7 +395,7 @@ local function init(opts)
         return nil, err_httpd:new("not found")
     end
 
-    -- assigning handler functions
+    -- назначение обработчиков
     httpd:route(
         { path = '/storage/:login/sign_in', method = 'PUT', public = true },
         http_account_sign_in
@@ -465,6 +470,7 @@ local function verify_session(account)
     if account[3] == 1 then --если сессия активна, вернуть true
         return true
     end
+    
 	--сессия не активна
     return false, false
 end
@@ -511,6 +517,7 @@ end
 
 ```lua
 local function account_add(account)
+    
     --проверка существования
     local tmp = box.space.account:get(account.login) --
     if tmp ~= nil then
@@ -701,6 +708,8 @@ local function init(opts)
     return true
 end
 ```
+
+
 
 В конце необходимо вернуть данные о роли.
 
@@ -1023,5 +1032,479 @@ local function peek_vinyl(login)
 
     return true
 end
+```
+
+## Добавление зависимостей 
+
+В `init.lua` необходимо указать роли, которые будут исползоваться кластером.
+
+```lua
+local cartridge = require('cartridge')
+local ok, err = cartridge.cfg({
+    roles = {
+        'cartridge.roles.vshard-storage',
+        'cartridge.roles.vshard-router',
+        'app.roles.api',
+    	'app.roles.simple_cache',
+    	'app.roles.cache_vinyl',
+    	'app.roles.cache_mysql',
+    },
+    cluster_cookie = 'cache-cluster-cookie',
+})
+```
+
+А в файле `cache-scm-1.rockspec` нужно указать все внешние заисимости.
+
+```lua
+package = 'cache'
+version = 'scm-1'
+source  = {
+    url = '/dev/null',
+}
+-- Put any modules your app depends on here
+dependencies = {
+    'tarantool',
+    'lua >= 5.1',
+    'luatest == 0.3.0-1',
+    'cartridge == 1.2.0-1',
+}
+build = {
+    type = 'none';
+}
+```
+
+## Тестирование 
+
+Описанные выше роли необходимо покрыть тестами. Для этого рекомендуется использовать модуль `luatest`.
+
+### Модульные тесты
+
+Для проверки работы отдельных модулей кластера и ролей используются модульные тесты. Тесты для каждой роли можно найти в папке `test/unit`. В данном случае взаимодействие кеша с хранилищем MySQL имитируется с помощью заглушки `mysql_mock.lua` в папке `test`.
+
+```lua
+local connection = {
+	storage = {}
+}
+
+function connection:execute(request)
+	local command = string.split(request, " ")[1]
+
+	if command == "SELECT" then
+		local login = string.split(request, "\'")[2]
+		local account = self.storage[login]
+		return {{account}}
+	end
+
+	if command == "REPLACE" then
+		local data = string.split(request, "\'")
+		self.storage[data[2]] = {
+			login = data[2],
+			password = data[4],
+			session = tonumber(data[6]),
+			bucket_id = tonumber(data[8]),
+			name = data[10],
+			email = data[12],
+			data = data[14],
+		}
+		return 
+	end
+
+	if command == "DELETE" then 
+		local login = string.split(request, "\'")[2]
+		self.storage[login] = nil
+		return
+	end
+end
+
+function connection:rollback()
+
+	self.storage = {}
+	self.storage["Mura"] = {
+        login = "Mura",
+        password = "1243",
+        session = -1,
+        bucket_id = 2,
+        name = "Tom",
+        email = "tom@mail.com",
+        data = "another secret"
+    }
+
+end
+
+function connect(args)
+
+	connection.storage["Mura"] = {
+        login = "Mura",
+        password = "1243",
+        session = -1,
+        bucket_id = 2,
+        name = "Tom",
+        email = "tom@mail.com",
+        data = "another secret"
+    }
+
+    return connection
+end
+
+return { connect = connect;}
+```
+
+Данный модуль имитирует синтаксис и логику работы с MySQL. В модульных тестах необходимо подменить модуль `mysql` данной заглушкой:
+
+```lua
+package.loaded['mysql'] = require('./test/mysql_mock')
+```
+
+Теперь команда `request('mysql')` будет возвращать модуль-заглушку.
+
+Запустить тесты можно следующим образом:
+
+```bash
+cache $ .rocks/bin/luatest ./test/unit
+```
+
+
+
+### Интеграционные тесты
+
+Для проверки корректного взаимодействия частей приложения друг с другом и с MySQL необходимы интеграционные тесты. Они расположены в `test/integration`. Реализуются также с помощью `luatest`.  Для выполнения данных тестов необходимо настроить хранилище MySQL и поднять тестовый кластер. Последнее делается с помощью модуля `caartridge.test-helpers` и стандартного `helper.lua` в `test`.
+
+```lua
+--helper.lua
+local fio = require('fio')
+local t = require('luatest')
+
+local helper = {}
+
+helper.root = fio.dirname(fio.abspath(package.search('init')))
+helper.datadir = fio.pathjoin(helper.root, 'tmp', 'db_test')
+helper.server_command = fio.pathjoin(helper.root, 'init.lua')
+
+t.before_suite(function()
+    fio.rmtree(helper.datadir)
+    fio.mktree(helper.datadir)
+end)
+
+return helper
+```
+
+Для тестов необходимо два сервера. Первый будет выполнять роль роутера, а второй выступит в роли хранилища. Тогда создание тестового кластера выполняется следующим образом:
+
+```lua
+local fio = require('fio')
+local t = require('luatest')
+local g = t.group('simple_cache_integration')
+
+local cartridge_helpers = require('cartridge.test-helpers')
+local shared = require('test.helper')
+
+g.before_all(function() 
+
+	g.cluster = cartridge_helpers.Cluster:new({
+	    server_command = shared.server_command,
+	    datadir = shared.datadir,
+	    use_vshard = true,
+	    replicasets = {
+	        {
+	            alias = 'api',
+	            uuid = cartridge_helpers.uuid('a'),
+	            roles = {'api'},
+	            servers = {{ instance_uuid = cartridge_helpers.uuid('a', 1),
+	            			advertise_port = 13301,
+	            			http_port = 8081 
+	            }},
+	        },
+		{
+	            alias = 'storage',
+	            uuid = cartridge_helpers.uuid('b'),
+	            roles = {'simple_cache'}, --пример для обычного кеша
+	            servers = {{ instance_uuid = cartridge_helpers.uuid('b', 1),
+	            			advertise_port = 13302,
+	            			http_port = 8082 
+	            }},
+	        },
+	    },
+	})
+
+	g.cluster:start()
+
+end)
+```
+
+После завершения группы тестов необходимо данный сервер остановить и очистить его рабочую директорию.
+
+```lua
+g.after_all(function() 
+	g.cluster:stop() 
+	fio.rmtree(g.cluster.datadir)
+end)
+```
+
+Запускаем тесты:
+
+```
+cache $ .rocks/bin/luatest ./test/integration/simple_cache_test.lua
+cache $ .rocks/bin/luatest ./test/integration/cache_mysql_test.lua
+cache $ .rocks/bin/luatest ./test/integration/cache_vinyl_test.lua
+```
+
+
+
+## Запуск
+
+Соберем кластер:
+
+```bash
+cache $ tarantoolctl rocks make
+```
+
+`tarantoolctl` подтянет все указанные в `cache-scm-1.rockspec` зависимости и подготовит кластер к запуску. 
+
+Запустим кластер:
+
+```bash
+cache $ cartridge start
+```
+
+Подключиться к веб-интерфейсу можно перейдя по адресу `http://127.0.0.1:8081/`. 
+
+Сначала назначим роль роутеру.
+
+![](tutorial_images/router.png)
+
+Затем назначим кеш.
+
+![](tutorial_images/cache.png)
+
+Запускаем **Bootstrap vshard**, и кластер готов к работе.
+
+## Примеры
+
+Проверим работу кластера. Создадим аккаунт:
+
+```bash
+$ curl -X POST -v -H "Content-Type: application/json" -d '{
+"login": "root1", 
+"name": "Aleks", 
+"password": "1234", 
+"email": "root@mail.com", 
+"data": "secret"}' http://localhost:8081/storage/create
+
+```
+
+В случае успеха получим подобное сообщение:
+
+```
+*   Trying 127.0.0.1:8081...
+* TCP_NODELAY set
+* Connected to localhost (127.0.0.1) port 8081 (#0)
+> POST /storage/create HTTP/1.1
+> Host: localhost:8081
+> User-Agent: curl/7.65.3
+> Accept: */*
+> Content-Type: application/json
+> Content-Length: 99
+> 
+* upload completely sent off: 99 out of 99 bytes
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 201 Created
+< Content-length: 66
+< Server: Tarantool http (tarantool v1.10.4-68-gf8f8adfab)
+< Content-type: application/json; charset=utf-8
+< Connection: keep-alive
+< 
+* Connection #0 to host localhost left intact
+{"info":"Account successfully created","time":0.00012199999999973}
+```
+
+Завершим сессию:
+
+```bash
+$ curl -X PUT -v  http://localhost:8081/storage/root1/sign_out
+```
+
+```
+*   Trying 127.0.0.1:8081...
+* TCP_NODELAY set
+* Connected to localhost (127.0.0.1) port 8081 (#0)
+> PUT /storage/root1/sign_out HTTP/1.1
+> Host: localhost:8081
+> User-Agent: curl/7.65.3
+> Accept: */*
+> 
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 200 Ok
+< Content-length: 45
+< Server: Tarantool http (tarantool v1.10.4-68-gf8f8adfab)
+< Content-type: application/json; charset=utf-8
+< Connection: keep-alive
+< 
+* Connection #0 to host localhost left intact
+{"info":"Success","time":0.00031399999999948}
+```
+
+Попробуем изменить имя:
+
+```bash
+$ curl -X PUT -v -H "Content-Type: application/json" -d '{"value": "Bob"}' http://localhost:8081/storage/root1/update/name
+```
+
+И нам резонно отказано в доступе:
+
+```bash
+*   Trying 127.0.0.1:8081...
+* TCP_NODELAY set
+* Connected to localhost (127.0.0.1) port 8081 (#0)
+> PUT /storage/root1/update/name HTTP/1.1
+> Host: localhost:8081
+> User-Agent: curl/7.65.3
+> Accept: */*
+> Content-Type: application/json
+> Content-Length: 16
+> 
+* upload completely sent off: 16 out of 16 bytes
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 401 Unauthorized
+< Content-length: 68
+< Server: Tarantool http (tarantool v1.10.4-68-gf8f8adfab)
+< Content-type: application/json; charset=utf-8
+< Connection: keep-alive
+< 
+* Connection #0 to host localhost left intact
+{"info":"Sign in first. Session is down","time":0.00012100000000004}
+```
+
+Создаем сессию:
+
+```bash
+$ curl -X PUT -v -H "Content-Type: application/json" -d '{"password": "1234"}' http://localhost:8081/storage/root1/sign_in
+```
+
+```
+*   Trying 127.0.0.1:8081...
+* TCP_NODELAY set
+* Connected to localhost (127.0.0.1) port 8081 (#0)
+> PUT /storage/root1/sign_in HTTP/1.1
+> Host: localhost:8081
+> User-Agent: curl/7.65.3
+> Accept: */*
+> Content-Type: application/json
+> Content-Length: 20
+> 
+* upload completely sent off: 20 out of 20 bytes
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 202 Accepted
+< Content-length: 46
+< Server: Tarantool http (tarantool v1.10.4-68-gf8f8adfab)
+< Content-type: application/json; charset=utf-8
+< Connection: keep-alive
+< 
+* Connection #0 to host localhost left intact
+{"info":"Accepted","time":0.00016399999999983}
+```
+
+Повторяем попытку изменить имя:
+
+```bash
+$ curl -X PUT -v -H "Content-Type: application/json" -d '{"value": "Bob"}' http://localhost:8081/storage/root1/update/name
+```
+
+```
+*   Trying 127.0.0.1:8081...
+* TCP_NODELAY set
+* Connected to localhost (127.0.0.1) port 8081 (#0)
+> PUT /storage/root1/update/name HTTP/1.1
+> Host: localhost:8081
+> User-Agent: curl/7.65.3
+> Accept: */*
+> Content-Type: application/json
+> Content-Length: 16
+> 
+* upload completely sent off: 16 out of 16 bytes
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 200 Ok
+< Content-length: 51
+< Server: Tarantool http (tarantool v1.10.4-68-gf8f8adfab)
+< Content-type: application/json; charset=utf-8
+< Connection: keep-alive
+< 
+* Connection #0 to host localhost left intact
+{"info":"Field updated","time":0.00011600000000023}
+```
+
+Проверим, что имя изменилось:
+
+```
+$ curl -X GET -v http://localhost:8081/storage/root1/name
+```
+
+```
+*   Trying 127.0.0.1:8081...
+* TCP_NODELAY set
+* Connected to localhost (127.0.0.1) port 8081 (#0)
+> GET /storage/root1/name HTTP/1.1
+> Host: localhost:8081
+> User-Agent: curl/7.65.3
+> Accept: */*
+> 
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 200 Ok
+< Content-length: 41
+< Server: Tarantool http (tarantool v1.10.4-68-gf8f8adfab)
+< Content-type: application/json; charset=utf-8
+< Connection: keep-alive
+< 
+* Connection #0 to host localhost left intact
+{"info":"Bob","time":9.6000000000984e-05}
+```
+
+Удалим аккаунт:
+
+```bash
+$ curl -X DELETE -v http://localhost:8081/storage/root1
+```
+
+```bash
+*   Trying 127.0.0.1:8081...
+* TCP_NODELAY set
+* Connected to localhost (127.0.0.1) port 8081 (#0)
+> DELETE /storage/root1/ HTTP/1.1
+> Host: localhost:8081
+> User-Agent: curl/7.65.3
+> Accept: */*
+> 
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 200 Ok
+< Content-length: 53
+< Server: Tarantool http (tarantool v1.10.4-68-gf8f8adfab)
+< Content-type: application/json; charset=utf-8
+< Connection: keep-alive
+< 
+* Connection #0 to host localhost left intact
+{"info":"Account deleted","time":0.00010800000000089}
+```
+
+```bash
+$ curl -X GET -v http://localhost:8081/storage/root1/name
+```
+
+```bash
+*   Trying 127.0.0.1:8081...
+* TCP_NODELAY set
+* Connected to localhost (127.0.0.1) port 8081 (#0)
+> GET /storage/root1/name HTTP/1.1
+> Host: localhost:8081
+> User-Agent: curl/7.65.3
+> Accept: */*
+> 
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 404 Not found
+< Content-length: 55
+< Server: Tarantool http (tarantool v1.10.4-68-gf8f8adfab)
+< Content-type: application/json; charset=utf-8
+< Connection: keep-alive
+< 
+* Connection #0 to host localhost left intact
+{"time":0.00021399999999971,"info":"Account not found"}
 ```
 
