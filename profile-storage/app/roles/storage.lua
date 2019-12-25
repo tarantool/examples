@@ -16,7 +16,7 @@ local function init_space()
                 {'profile_id', 'unsigned'},
                 {'bucket_id', 'unsigned'},
                 {'first_name', 'string'},
-                {'second_name', 'string'},
+                {'sur_name', 'string'},
                 {'patronymic', 'string'},
                 {'msgs_count', 'unsigned'},
                 {'service_info', 'string'}
@@ -93,14 +93,8 @@ local function profile_get(id)
     
     local profile = box.space.profile:get(id)
     if profile ~= nil then
-        profile = {
-            profile_id = profile.profile_id,
-            first_name = profile.first_name,
-            second_name = profile.second_name,
-            patronymic = profile.patronymic,
-            msgs_count = profile.msgs_count,
-            service_info = profile.service_info,
-        }
+        profile = tuple_to_map(box.space.profile:format(), profile)
+        profile.bucket_id = nil
     end
     return profile
 end

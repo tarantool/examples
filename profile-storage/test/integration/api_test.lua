@@ -3,13 +3,14 @@ local g = t.group('integration_api')
 
 local helper = require('test.helper.integration')
 local cluster = helper.cluster
+local deepcopy = helper.shared.deepcopy
 
 local mysql = require('mysql')
 
-local profile_1 = {
+local test_profile = {
     profile_id = 1, 
     first_name = 'Petr',
-    second_name = 'Petrov',
+    sur_name = 'Petrov',
     patronymic = 'Ivanovich',
     msgs_count = 110,
     service_info = 'admin'
@@ -27,15 +28,15 @@ g.test_on_get_not_found = function()
 end
 
 g.test_on_post_ok = function ()
-    helper.assert_http_json_request('post', '/profile', profile_1, {status=201})
+    helper.assert_http_json_request('post', '/profile', test_profile, {status=201})
 end
 
 g.test_on_post_conflict = function()
-    helper.assert_http_json_request('post', '/profile', profile_1, {body = {info = "Profile already exist"}, status=409})
+    helper.assert_http_json_request('post', '/profile', test_profile, {body = {info = "Profile already exist"}, status=409})
 end
 
 g.test_on_get_ok = function ()
-    helper.assert_http_json_request('get', '/profile/1', nil, {body = profile_1, status = 200})
+    helper.assert_http_json_request('get', '/profile/1', nil, {body = test_profile, status = 200})
 end
 
 g.test_on_put_not_found = function()
@@ -43,7 +44,7 @@ g.test_on_put_not_found = function()
 end
 
 g.test_on_put_ok = function()
-    local changed_profile = profile_1
+    local changed_profile = deepcopy(test_profile)
     changed_profile.msgs_count = 115
     helper.assert_http_json_request('put', '/profile/1', {msgs_count = 115}, {body = changed_profile, status = 200})
 end

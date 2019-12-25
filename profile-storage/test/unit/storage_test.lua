@@ -4,169 +4,84 @@ local helper = require('test.helper.unit')
 
 require('test.helper.unit')
 
-local mock = require('test.mocks.mysql_handlers_mock')
-package.loaded['app.mysql_handlers'] = mock
 
-local storage = require('app.roles.storage')
+local storage = require('app.roles.storage') 
 local utils = storage.utils
+local deepcopy = helper.shared.deepcopy
+
+local test_profile = {
+    profile_id = 1,
+    bucket_id = 1,
+    first_name = 'Petr',
+    sur_name = 'Petrov',
+    patronymic = 'Ivanovich',
+    msgs_count = 100,
+    service_info = 'admin'
+}
 
 g.test_sample = function()
     t.assert_equals(type(box.cfg), 'table')
+    
 end
 
 g.test_profile_get_not_found = function()
-    mock.set_retvalue(nil)
-    local previous_calls = mock.calls_count()
-    t.assert_equals(utils.profile_get(10), nil)
-    t.assert_equals(mock.calls_count(), previous_calls + 1, 'mysql must be called once')
+    t.assert_equals(utils.profile_get(1), nil)
 end
 
-g.test_profile_get_found_in_base = function()
-    local profile = {
-        profile_id = 2,
-        bucket_id = 1, 
-        first_name = 'Petr',
-        second_name = 'Petrov',
-        patronymic = 'Ivanovich',
-        msgs_count = 100,
-        service_info = 'admin'
-    }
-    local profile_no_bucket = helper.deepcopy(profile)
-    profile_no_bucket.bucket_id = nil
-    mock.set_retvalue(helper.deepcopy(profile))
-    local previous_calls = mock.calls_count()
-    t.assert_equals(utils.profile_get(2), profile_no_bucket)
-    t.assert_equals(box.space.profile:get(2), box.space.profile:frommap(profile))
-    t.assert_equals(mock.calls_count(), previous_calls + 1, 'mysql must be called once')
-end
-
-g.test_profile_get_found_in_cache = function ()
-    mock.set_retvalue(nil)
-    local previous_calls = mock.calls_count()
-    t.assert_equals(utils.profile_get(2), {
-        profile_id = 2, 
-        first_name = 'Petr',
-        second_name = 'Petrov',
-        patronymic = 'Ivanovich',
-        msgs_count = 100,
-        service_info = 'admin'
-    })
-    t.assert_equals(mock.calls_count(), previous_calls, 'mysql must not be called if key is in cache')
+g.test_profile_get_found = function()
+    box.space.profile:insert(box.space.profile:frommap(test_profile))
+    local no_bucket_profile = deepcopy(test_profile)
+    no_bucket_profile.bucket_id = nil
+    t.assert_equals(utils.profile_get(1), no_bucket_profile)
 end
 
 g.test_profile_add_ok = function()
-    local profile = {
-        profile_id = 1,
-        bucket_id = 1, 
-        first_name = 'Petr',
-        second_name = 'Petrov',
-        patronymic = 'Ivanovich',
-        msgs_count = 100,
-        service_info = 'admin'
-    }
-    mock.set_retvalue(true)
-    local previous_calls = mock.calls_count()
-    t.assert_equals(utils.profile_add(helper.deepcopy(profile)), true)
-    t.assert_equals(box.space.profile:get(1), box.space.profile:frommap(profile))
-    t.assert_equals(mock.calls_count(), previous_calls + 1, 'mysql must be called once')
+    t.assert_equals(utils.profile_add(deepcopy(test_profile)), true)
+    t.assert_equals(box.space.profile:get(1), box.space.profile:frommap(test_profile))
 end
 
-g.test_profile_add_conflict_in_cache = function()
-    local profile = {
-        profile_id = 1,
-        bucket_id = 1, 
-        first_name = 'Petr',
-        second_name = 'Petrov',
-        patronymic = 'Ivanovich',
-        msgs_count = 100,
-        service_info = 'admin'
-    }
-    mock.set_retvalue(false)
-    local previous_calls = mock.calls_count()
-    t.assert_equals(utils.profile_add(helper.deepcopy(profile)), false)
-    t.assert_equals(mock.calls_count(), previous_calls, 'mysql must not be called if key is in cache')
+g.test_profile_add_conflict = function()
+    box.space.profile:insert(box.space.profile:frommap(test_profile))
+    t.assert_equals(utils.profile_add(deepcopy(test_profile)), false)
 end
 
-g.test_profile_add_conflict_in_base = function()
-    local profile = {
-        profile_id = 10,
-        bucket_id = 1, 
-        first_name = 'Petr',
-        second_name = 'Petrov',
-        patronymic = 'Ivanovich',
-        msgs_count = 100,
-        service_info = 'admin'
-    }
-    mock.set_retvalue(false)
-    local previous_calls = mock:calls_count()
-    t.assert_equals(utils.profile_add(helper.deepcopy(profile)), false)
-    t.assert_equals(mock:calls_count(), previous_calls + 1 , 'mysql myst be called once')
-end
+g.test_profile_update_ok = function()
+    box.space.profile:insert(box.space.profile:frommap(test_profile))
 
-g.test_profile_update_exists_in_base = function()
-    local profile = {
-        profile_id = 10,
-        bucket_id = 1, 
-        first_name = 'Petr',
-        second_name = 'Petrov',
-        patronymic = 'Ivanovich',
-        msgs_count = 100,
-        service_info = 'admin'
-    }
-    local new_profile = {
-        msgs_count = 100
+    local changes = {
+        msgs_count = 333,
+        first_name = "Ivan"
     }
 
-    mock.set_retvalue(helper.deepcopy(profile))
-    local previous_calls = mock.calls_count()
-    local profile_no_bucket = helper.deepcopy(profile)
-    profile_no_bucket.bucket_id = nil
-    t.assert_equals(utils.profile_update(10, new_profile), profile_no_bucket)
-    t.assert_equals(box.space.profile:get(10), box.space.profile:frommap(profile))
-    t.assert_equals(mock.calls_count(), previous_calls + 1, 'mysql must be called once')
-end
+    local updated_profile = deepcopy(test_profile)
+    updated_profile.msgs_count = changes.msgs_count
+    updated_profile.first_name = changes.first_name
 
-g.test_profile_update_exists_in_box = function()
-    local profile = {
-        profile_id = 10,
-        bucket_id = 1,
-        first_name = 'Petr',
-        second_name = 'Petrov',
-        patronymic = 'Ivanovich',
-        msgs_count = 322,
-        service_info = 'admin'
-    }
-    local new_profile = {
-        msgs_count = 322
-    }
+    local no_bucket_profile = deepcopy(updated_profile)
+    no_bucket_profile.bucket_id = nil
 
-    mock.set_retvalue(helper.deepcopy(profile))
-    local previous_calls = mock.calls_count()
-    local profile_no_bucket = helper.deepcopy(profile)
-    profile_no_bucket.bucket_id = nil
-    t.assert_equals(utils.profile_update(10, new_profile), profile_no_bucket)
-    t.assert_equals(box.space.profile:get(10), box.space.profile:frommap(profile))
-    t.assert_equals(mock.calls_count(), previous_calls + 1, 'mysql must be called once')
+    t.assert_equals(utils.profile_update(1, changes), no_bucket_profile)
+    t.assert_equals(box.space.profile:get(1), box.space.profile:frommap(updated_profile))
 end
 
 g.test_profile_update_not_found = function()
-    mock.set_retvalue(nil)
-    local previous_calls = mock:calls_count()
-    t.assert_equals(utils.profile_update(12,{msgs_count = 255}), nil)
-    t.assert_equals(mock.calls_count(), previous_calls + 1, 'mysql must be called once')
+    t.assert_equals(utils.profile_update(1, {msgs_count = 111}), nil)
 end
 
 g.test_profile_delete_ok = function()
-    mock.set_retvalue(true)
-    local previous_calls = mock.calls_count()
-    t.assert_equals(utils.profile_delete(10), true)
-    t.assert_equals(box.space.profile:get(10), nil,  'tuple must be deleted from space')
-    t.assert_equals(mock.calls_count(), previous_calls + 1, 'mysql must be called once')
+    box.space.profile:insert(box.space.profile:frommap(test_profile))
+    t.assert_equals(utils.profile_delete(1), true)
+    t.assert_equals(box.space.profile:get(1), nil, 'tuple must be deleted from space')
 end
 
 g.test_profile_delete_not_found = function()
-    mock.set_retvalue(false)
-    local previous_calls = mock.calls_count()
-    t.assert_equals(utils.profile_delete(10), false)
-    t.assert_equals(mock.calls_count(), previous_calls + 1, 'mysql must be called once')
+    t.assert_equals(utils.profile_delete(1), false)
 end
+
+g.before_all(function()
+    storage.init({is_master = true})
+end)
+
+g.before_each(function ()
+    box.space.profile:truncate()
+end)
