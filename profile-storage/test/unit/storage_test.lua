@@ -170,8 +170,3 @@ g.test_profile_delete_not_found = function()
     t.assert_equals(utils.profile_delete(10), false)
     t.assert_equals(mock.calls_count(), previous_calls + 1, 'mysql must be called once')
 end
-
-g.before_all(function()
-    -- Выполним инициализацию модуля, чтобы создались экземпляры кэша и заглушки подключения к базе
-    storage.init({is_master=true})
-end)

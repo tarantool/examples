@@ -1,34 +1,11 @@
 -- модуль проверки аргументов в функциях
 local checks = require('checks')
 
--- модуль работы с mysql
-local mysql = require('app.mysql_handlers')
-
--- lru кэш
-local lru_cache = require('app.lru_cache')
-
 -- модуль работы с числами
 local decnumber = require('ldecnumber')
 
 local cache = {}
 local connection_pool = {}
-
-local function init_cache(size)
-    cache = lru_cache.new(size)
-    for _, v in box.space.profile:pairs() do
-        cache:set(v.profile_id, true)
-    end
-end
-
-local function init_connection_pool(connection_count)
-    connection_pool = mysql.new({
-        host = '127.0.0.1',
-        user = 'root',
-        password = 'password',
-        db = 'profile_storage',
-        size = connection_count,
-    })
-end
 
 local function init_space()
     local profile = box.schema.space.create(
@@ -64,78 +41,65 @@ local function init_space()
 end
 
 local function profile_add(profile)
-    -- Проверим что профиль уже существует
-    local exists = cache:get(profile.profile_id)
-    if exists then
+    checks('table')
+
+    -- Проверяем существование пользователя с таким id
+    local exist = box.space.profile:get(profile.profile_id)
+    if exist ~= nil then
         return false
     end
 
-    local ok = connection_pool:profile_add(profile)
-    if not ok then
-        return false
-    end
-    
-    box.space.profile:insert({
-        profile.profile_id,
-        profile.bucket_id,
-        profile.first_name,
-        profile.second_name,
-        profile.patronymic,
-        profile.msgs_count,
-        profile.service_info
-    })
-    cache:set(profile.profile_id, true)
+    box.space.profile:insert(box.space.profile:frommap(profile))
+
     return true
 end
 
+local function complete_table(major, minor)
+    for k, v in pairs(major) do
+        if minor[k] == nil then
+            minor[k] = v
+        end
+    end
+end
+
+local function tuple_to_map(format, tuple)
+    local map = {}
+    for _, i in ipairs(format) do
+        map[i.name] = tuple[i.name]
+    end
+    return map
+end
+
 local function profile_update(id, changes)
-    -- Проверка аргументов функции
     checks('number', 'table')
 
-     -- Обновляем пользователя в базе
-     local new_profile = connection_pool:profile_update(id, changes)
-     if new_profile == nil then
-         return nil
-     end
+    
+    local exists = box.space.profile:get(id)
 
-    -- Обновляем профиль(или добавляем, если его не было в кеше)
-    if cache:get(id) then
-        box.space.profile:replace(box.space.profile:frommap(new_profile))
-    else
-        box.space.profile:insert(box.space.profile:frommap(new_profile))
-        cache:set(id, true)
+    if exists == nil then
+        return nil
     end
-    new_profile.bucket_id = nil
-    return new_profile
+
+    exists = tuple_to_map(box.space.profile:format(), exists)
+    complete_table(exists, changes)
+    box.space.profile:replace(box.space.profile:frommap(changes))
+
+    changes.bucket_id = nil
+    return changes
 end
 
 local function profile_get(id)
     checks('number')
     
-    local profile = nil
-    local exists = cache:get(id)
-    if exists then
-        profile = box.space.profile:get(id)
-    end
-
-    -- Если нет в кеше, смотрим в базе
-    if profile == nil then
-        profile = connection_pool:profile_get(id)
-        -- Если нашли в базе, добавляем в кэш
-        if profile ~= nil then
-            local prf = box.space.profile:frommap(profile)
-            box.space.profile:insert(prf)
-            cache:set(id, true)
-            profile.bucket_id = nil
-        end
-    else
+    local profile = box.space.profile:get(id)
+    if profile ~= nil then
         profile = {
             profile_id = profile.profile_id,
             first_name = profile.first_name,
             second_name = profile.second_name,
             patronymic = profile.patronymic,
             msgs_count = profile.msgs_count,
-            service_info = profile.service_info
+            service_info = profile.service_info,
         }
     end
     return profile
@@ -144,12 +108,13 @@ end
 local function profile_delete(id)
     checks('number')
     
-    local ok = connection_pool:profile_delete(id)
-    if ok then
-        box.space.profile:delete{id}
-        cache:remove(id)
+    local exists = box.space.profile:get(id)
+    if exists ~= nil then
+        box.space.profile:delete(id)
+        return true
+    else
+        return false
     end
-    return ok
 end
 
 local function init(opts)
@@ -166,9 +131,6 @@ local function init(opts)
         box.schema.role.grant('public', 'execute', 'function', 'profile_update', {if_not_exists = true})
         box.schema.role.grant('public', 'execute', 'function', 'profile_delete', {if_not_exists = true})
     end
-
-    init_connection_pool(5)
-    init_cache(20)
 
     rawset(_G, 'profile_add', profile_add)
     rawset(_G, 'profile_get', profile_get)

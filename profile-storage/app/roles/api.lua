@@ -7,6 +7,34 @@ local log = require('log')
 local err_vshard_router = errors.new_class("Vshard routing error")
 local err_httpd = errors.new_class("httpd error")
 
+local function json_response(req, json, status) 
+    local resp = req:render({json = json})
+    resp.status = status
+    return resp
+end
+
+local function internal_error_response(req, error)
+    local resp = json_response(req, {
+        info = "Internal error",
+        error = error
+    }, 500)
+    return resp
+end
+
+local function profile_not_found_response(req)
+    local resp = json_response(req, {
+        info = "Profile not found"
+    }, 404)
+    return resp
+end
+
+local function profile_conflict_response(req)
+    local resp = json_response(req, {
+        info = "Profile already exist"
+    }, 409)
+    return resp
+end
+
 local function http_profile_add(req)
     local profile = req:json()
 
@@ -22,24 +50,13 @@ local function http_profile_add(req)
     )
 
     if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            error = error
-        }})
-        resp.status = 500
-        return resp
+        return internal_error_response(req, error)
     end
     if not ok then
-        local resp = req:render({json = {
-            info = "Profile already exist"
-        }})
-        resp.status = 409
-        return resp
+        return profile_conflict_response(req)
     end
     
-    local resp = req:render({json = {info = "Successfully created"}})
-    resp.status = 201
-    return resp
+    return json_response(req, {info = "Successfully created"}, 201)
 end
 
 local function http_profile_update(req)
@@ -58,24 +75,13 @@ local function http_profile_update(req)
     )
 
     if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            error = error
-        }})
-        resp.status = 500
-        return resp
+        return internal_error_response(req,error)
     end
     if profile == nil then
-        local resp = req:render({json = {
-            info = "Profile not found"
-        }})
-        resp.status = 404
-        return resp
+        return profile_not_found_response(req)
     end
     
-    local resp = req:render({json = profile})
-    resp.status = 200
-    return resp
+    return json_response(req, profile, 200)
 end
 
 local function http_profile_get(req)
@@ -92,24 +98,13 @@ local function http_profile_get(req)
     )
 
     if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            error = error
-        }})
-        resp.status = 500
-        return resp
+        return internal_error_response(req, error)
     end
     if profile == nil then
-        local resp = req:render({json = {
-            info = "Profile not found"
-        }})
-        resp.status = 404
-        return resp
+        return profile_not_found_response(req)
     end
 
-    local resp = req:render({json = profile})
-    resp.status = 200
-    return resp
+    return json_response(req, profile, 200)
 end
 
 local function http_profile_delete(req)
@@ -126,26 +121,13 @@ local function http_profile_delete(req)
     )
 
     if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            error = error
-        }})
-        resp.status = 500
-        return resp
+        return internal_error_response(req, error)
     end
     if not ok then
-        local resp = req:render({json = {
-            info = "Profile not found"
-        }})
-        resp.status = 404
-        return resp
+        return profile_not_found_response(req)
     end
 
-    local resp = req:render({json = {
-        info = "Deleted"
-    }})
-    resp.status = 200
-    return resp
+    return json_response(req, {info = "Deleted"}, 200)
 end
 
 local function init(opts)
