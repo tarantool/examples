@@ -34,7 +34,7 @@ local err_vshard_router = errors.new_class("Vshard routing error")
 local err_httpd = errors.new_class("httpd error")
 ```
 
-Функция `verify_response` обрабатывает ошибки и формирует сообщения об ошибках, если что-то пошло не так.
+Функция `verify_response` формирует сообщения об ошибках, если что-то пошло не так.
 
 ```lua
 -- api.lua
