@@ -126,7 +126,7 @@ local function http_account_delete(req)
 	local bucket_id = vshard.router.bucket_id(login)
 
     -- вызов функции удаления аккаунта из хранилища
-	local success, error = err_vshard_router:pcall(
+    local success, error = err_vshard_router:pcall(
         vshard.router.call,
         bucket_id,
         'read',
@@ -156,7 +156,7 @@ local function http_account_get(req)
 	local bucket_id = vshard.router.bucket_id(login)
 
     -- запрос значения поля
-	local account_data, error = err_vshard_router:pcall(
+    local account_data, error = err_vshard_router:pcall(
         vshard.router.call,
         bucket_id,
         'read',
@@ -181,14 +181,14 @@ end
 -- api.lua
 local function http_account_update(req)
     local time_stamp = os.clock()
-	local login = req:stash('login')
-	local field = req:stash('field')
-	local bucket_id = vshard.router.bucket_id(login)
+    local login = req:stash('login')
+    local field = req:stash('field')
+    local bucket_id = vshard.router.bucket_id(login)
 
-	local value = req:json().value
+    local value = req:json().value
 	
     -- обновление поля
-	local success, error = err_vshard_router:pcall(
+    local success, error = err_vshard_router:pcall(
         vshard.router.call,
         bucket_id,
         'write',
@@ -231,7 +231,7 @@ local function init(opts)
     end
 
     -- назначение обработчиков
-	httpd:route(
+    httpd:route(
         { path = '/storage/:login/update/:field', method = 'PUT', public = true },
         http_account_update
     )
