@@ -95,64 +95,6 @@ g.test_account_add = function()
 
 end
 
-g.test_account_sign_out = function()
-
-	assert_http_request('put', '/storage/login1/sign_out', nil,
-						{info = "Account not found", status = 404})
-
-	assert_http_request('post', '/storage/create', 
-						{login = "login1", name = "name1", password = "1", email =  "login1@mail.com", data = "data1"}, 
-						{info = "Account successfully created", status = 201})
-
-
-	assert_http_request('post', '/storage/create', 
-						{login = "login2", name = "name2", password = "2", email =  "login2@mail.com", data = "data2"},
-						{info = "Account successfully created", status = 201})
-
-	assert_http_request('put', '/storage/login1/sign_out', nil,
-						{info = "Success", status = 200})
-
-end
-
-g.test_account_sign_in = function()
-	
-	assert_http_request('post', '/storage/create', 
-						{login = "login1", name = "name1", password = "1", email =  "login1@mail.com", data = "data1"}, 
-						{info = "Account successfully created", status = 201})
-
-	assert_http_request('post', '/storage/create', 
-						{login = "login2", name = "name2", password = "2", email =  "login2@mail.com", data = "data2"},
-						{info = "Account successfully created", status = 201})
-
-	assert_http_request('put', '/storage/login1/sign_out', 
-						nil,
-						{info = "Success", status = 200})
-
-	assert_http_request('put', '/storage/login2/sign_out', 
-						nil,
-						{info = "Success", status = 200})
-
-	assert_http_request('get', '/storage/login1/name', 
-						nil,
-						{info = "Sign in first. Session is down", status = 401})
-
-	assert_http_request('get', '/storage/login2/name', 
-						nil,
-						{info = "Sign in first. Session is down", status = 401})
-
-	assert_http_request('put', '/storage/login1/sign_in', 
-						{password = "1"},
-						{info = "Accepted", status = 202})
-
-	assert_http_request('get', '/storage/login1/name', 
-						nil,
-						{info = "name1", status = 200})
-
-	assert_http_request('get', '/storage/login2/name', 
-						nil,
-						{info = "Sign in first. Session is down", status = 401})
-
-end
 
 g.test_account_get = function()
 
@@ -192,11 +134,11 @@ g.test_account_get = function()
 
 	assert_http_request('get', '/storage/login1/password', 
 						nil,
-						{info = "Invalid field", status = 400})
+						{info = "1", status = 200})
 
 	assert_http_request('get', '/storage/login2/password', 
 						nil,
-						{info = "Invalid field", status = 400})
+						{info = "2", status = 200})
 
 	assert_http_request('get', '/storage/login3/name', 
 						nil,
@@ -267,7 +209,7 @@ g.test_account_update = function()
 
 	assert_http_request('put', '/storage/login1/update/password', 
 						{value = "4321"},
-						{info = "Invalid field", status = 400})
+						{info = "Field updated", status = 200})
 
 	assert_http_request('put', '/storage/login3/update/name', 
 						{value = "4321"},

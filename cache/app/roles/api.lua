@@ -5,6 +5,45 @@ local errors = require('errors')
 local err_vshard_router = errors.new_class("Vshard routing error")
 local err_httpd = errors.new_class("httpd error")
 
+local function verify_response(response, error, req)
+    
+    if error then
+        local resp = req:render({json = {
+            info = "Internal error",
+            error = error
+        }})
+        resp.status = 500
+        return resp
+    end
+
+    if response == nil then
+        local resp = req:render({json = {
+            info = "Account not found",
+            error = error
+        }})
+        resp.status = 404
+        return resp
+    end
+
+    if response == -1 then
+        local resp = req:render({json = {
+            info = "Invalid field",
+        }})
+        resp.status = 400
+        return resp
+    end
+
+    if response == false then
+        local resp = req:render({json = {
+            info = "Account with such login exists",
+        }})
+        resp.status = 409
+        return resp
+    end
+
+    return true
+end
+
 local function http_account_add(req)
     local time_stamp = os.clock()
     local account = req:json()
@@ -19,120 +58,15 @@ local function http_account_add(req)
         {account}
     )
 
-    if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
-    end
-
-    if success == false then
-    	local resp = req:render({json = {
-            info = "Account with such login exists",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 409
-        return resp
+    local verification_status = verify_response(success, error, req)
+    if verification_status ~= true then
+        return verification_status
     end
 
     local resp = req:render({json = { info = "Account successfully created", time = os.clock() - time_stamp}})
     resp.status = 201
     return resp
 end
-
-local function http_account_sign_in(req)
-    local time_stamp = os.clock()
-	local login = req:stash('login')
-	local password = req:json().password
-	local bucket_id = vshard.router.bucket_id(login)
-
-	local success, error = err_vshard_router:pcall(
-        vshard.router.call,
-        bucket_id,
-        'write',
-        'account_sign_in',
-        {login, password}
-    )
-
-	if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
-    end
-
-    if success == nil then
-    	local resp = req:render({json = {
-            info = "Account not found",
-            time = os.clock() - time_stamp,
-            error = error
-       	 }})
-        resp.status = 404
-        return resp
-    end
-
-    if success == false then
-    	local resp = req:render({json = {
-            info = "Wrong password",
-            time = os.clock() - time_stamp,
-            error = error,
-       	 }})
-        resp.status = 401
-        return resp
-    end
-
-    local resp = req:render({json = { info = "Accepted", time = os.clock() - time_stamp}})
-    resp.status = 202
-    return resp
-
-end
-
-local function http_account_sign_out(req)
-    local time_stamp = os.clock()
-	local login = req:stash('login')
-	local bucket_id = vshard.router.bucket_id(login)
-
-	local success, error = err_vshard_router:pcall(
-        vshard.router.call,
-        bucket_id,
-        'write',
-        'account_sign_out',
-        {login}
-    )
-
-    if success == nil then
-    	local resp = req:render({json = {
-            info = "Account not found",
-            time = os.clock() - time_stamp,
-            error = error
-       	 }})
-        resp.status = 404
-        return resp
-    end
-
-	if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
-    end
-
-    local resp = req:render({json = { info = "Success", time = os.clock() - time_stamp}})
-    resp.status = 200
-    return resp
-
-end
-
 
 local function http_account_delete(req)
     local time_stamp = os.clock()
@@ -147,34 +81,9 @@ local function http_account_delete(req)
         {login}
     )
 
-    if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
-    end
-
-    if success == nil then
-        local resp = req:render({json = {
-            info = "Account not found",
-            time = os.clock() - time_stamp,
-            error = error,
-        }})
-        resp.status = 404
-        return resp
-    end
-
-    if success == false then
-        local resp = req:render({json = {
-            info = "Sign in first. Session is down",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 401
-        return resp
+    local verification_status = verify_response(success, error, req)
+    if verification_status ~= true then
+        return verification_status
     end
 
     local resp = req:render({json = {info = "Account deleted", time = os.clock() - time_stamp}})
@@ -198,42 +107,9 @@ local function http_account_update(req)
         {login, field, value}
     )
 
-    if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
-    end
-
-    if success == nil then
-        local resp = req:render({json = {
-            info = "Account not found",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 404
-        return resp
-    end
-
-    if success == false then
-        local resp = req:render({json = {
-            info = "Sign in first. Session is down",
-            time = os.clock() - time_stamp,
-        }})
-        resp.status = 401
-        return resp
-    end
-
-    if success == -1 then
-        local resp = req:render({json = {
-            info = "Invalid field",
-            time = os.clock() - time_stamp,
-        }})
-        resp.status = 400
-        return resp
+    local verification_status = verify_response(success, error, req)
+    if verification_status ~= true then
+        return verification_status
     end
 
     local resp = req:render({json = {info = "Field updated", time = os.clock() - time_stamp}})
@@ -255,42 +131,9 @@ local function http_account_get(req)
         {login, field}
     )
 
-    if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
-    end
-
-    if account_data == nil then
-        local resp = req:render({json = {
-            info = "Account not found",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 404
-        return resp
-    end
-
-    if account_data == false then
-        local resp = req:render({json = {
-            info = "Sign in first. Session is down",
-            time = os.clock() - time_stamp,
-        }})
-        resp.status = 401
-        return resp
-    end
-
-    if account_data == -1 then
-        local resp = req:render({json = {
-            info = "Invalid field",
-            time = os.clock() - time_stamp,
-        }})
-        resp.status = 400
-        return resp
+    local verification_status = verify_response(account_data, error, req)
+    if verification_status ~= true then
+        return verification_status
     end
 
     local resp = req:render({json = {info = account_data, time = os.clock() - time_stamp}})
@@ -316,14 +159,6 @@ local function init(opts)
     end
 
     -- assigning handler functions
-    httpd:route(
-        { path = '/storage/:login/sign_in', method = 'PUT', public = true },
-        http_account_sign_in
-    )
-	httpd:route(
-        { path = '/storage/:login/sign_out', method = 'PUT', public = true },
-        http_account_sign_out
-    )
 	httpd:route(
         { path = '/storage/:login/update/:field', method = 'PUT', public = true },
         http_account_update

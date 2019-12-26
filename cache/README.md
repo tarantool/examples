@@ -1,12 +1,12 @@
-# Кеш
+# Кэш
 
 ## Задачи
 
 Создадим хранилище аккаунтов с поддержкой команд POST, PUT, GET, DELETE для создания, изменения, чтения и удаления аккаунта соответственно. В качестве хранилища будет использоваться следующее:
 
-1. Обычный кеш (memcache)
-2. Кеш с базой данных MySQL
-3. Кеш с базой данных Vinyl
+1. Обычный кэш (memcache)
+2. Кэш с базой данных MySQL
+3. Кэш с базой данных Vinyl
 
 ## 1. Роль Router
 Будем реализовывать логику хранилища аккаунтов. Это хранилище должно быть способно обрабатывать запросы на создание и удаление аккаунтов, чтение и обновление информации. 
@@ -18,13 +18,14 @@ $ cartridge create --name cache
 $ cd cache
 ```
 
-Первым делом необходимо создать роль Router, которая будет принимать и обрабатывать запросы, обращаясь в кеш. 
+Первым делом необходимо создать роль Router, которая будет принимать и обрабатывать запросы, обращаясь в кэш. 
 
 Все роли лежат в `app/roles`.
 
 Для корректной работы подключим необходимые библиотеки.
 
 ```lua
+-- api.lua
 local vshard = require('vshard')
 local cartridge = require('cartridge')
 local errors = require('errors')
@@ -33,16 +34,67 @@ local err_vshard_router = errors.new_class("Vshard routing error")
 local err_httpd = errors.new_class("httpd error")
 ```
 
-1) Первой функцией, которую нужно реализовать, будет функция создания аккаунта. Назовем ее `http_account_add`. 
+Функция `verify_response` обрабатывает ошибки и формирует сообщения об ошибках, если что-то пошло не так.
 
 ```lua
+-- api.lua
+local function verify_response(response, error, req)
+    
+    -- внутренняя ошибка
+    if error then
+        local resp = req:render({json = {
+            info = "Internal error",
+            error = error
+        }})
+        resp.status = 500
+        return resp
+    end
+	
+    -- аккаунт не найден
+    if response == nil then
+        local resp = req:render({json = {
+            info = "Account not found",
+            error = error
+        }})
+        resp.status = 404
+        return resp
+    end
+
+    -- некорректное поле 
+    if response == -1 then
+        local resp = req:render({json = {
+            info = "Invalid field",
+        }})
+        resp.status = 400
+        return resp
+    end
+
+    -- аккаунт уже существует
+    if response == false then
+        local resp = req:render({json = {
+            info = "Account with such login exists",
+        }})
+        resp.status = 409
+        return resp
+    end
+	
+    -- true, если все ok
+    return true
+end
+```
+
+
+
+1) Функция `http_account_add` обрабатывает запрос на добавление аккаунта. 
+
+```lua
+-- api.lua
 local function http_account_add(req)
-    local time_stamp = os.clock() --время начала работы функции
-    local account = req:json() --преобразование данных из json в таблицу
+    local time_stamp = os.clock()
+    local account = req:json()
 	local bucket_id = vshard.router.bucket_id(account.login)
     account.bucket_id = bucket_id
-    
-    --вызов функции создания аккаунта хранилища
+
     local success, error = err_vshard_router:pcall(
         vshard.router.call,
         bucket_id,
@@ -50,47 +102,30 @@ local function http_account_add(req)
         'account_add',
         {account}
     )
-    
-    --внутренняя ошибка
-    if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
+
+    local verification_status = verify_response(success, error, req)
+    if verification_status ~= true then
+        return verification_status
     end
-    
-    --аккаунт уже существует
-    if success == false then
-    	local resp = req:render({json = {
-            info = "Account with such login exists",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 409
-        return resp
-    end
-    
-    local resp = req:render({json = { info = "Account successfully created", 	
-                			time = os.clock() - time_stamp}})
+
+    local resp = req:render({json = { info = "Account successfully created", time = os.clock() - time_stamp}})
     resp.status = 201
     return resp
 end
 ```
 
-Данная функция обращается к кешу и, если аккаунт создан, возвращает сообщение об успехе операции. 
+Данная функция обращается к кэшу и, если аккаунт создан, возвращает сообщение об успехе операции. 
 
 2) `http_account_delete` удаляет аккаунт из хранилища.
 
 ```lua
+-- api.lua
 local function http_account_delete(req)
-    local time_stamp = os.clock() --время начала работы функции
+    local time_stamp = os.clock()
     local login = req:stash('login')
 	local bucket_id = vshard.router.bucket_id(login)
-	
-    --вызов функции удаления аккаунта хранилища
+
+    -- вызов функции удаления аккаунта из хранилища
 	local success, error = err_vshard_router:pcall(
         vshard.router.call,
         bucket_id,
@@ -98,41 +133,13 @@ local function http_account_delete(req)
         'account_delete',
         {login}
     )
-    
-	--внутренняя ошибка
-    if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
-    end
-    
-    --аккаунт не найден
-    if success == nil then
-        local resp = req:render({json = {
-            info = "Account not found",
-            time = os.clock() - time_stamp,
-            error = error,
-        }})
-        resp.status = 404
-        return resp
+
+    local verification_status = verify_response(success, error, req)
+    if verification_status ~= true then
+        return verification_status
     end
 
-    --сессия не активна
-    if success == false then
-        local resp = req:render({json = {
-            info = "Sign in first. Session is down",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 401
-        return resp
-    end
-
-    local resp = req:render({json = {info = "Account deleted", 														time = os.clock() - time_stamp}})
+    local resp = req:render({json = {info = "Account deleted", time = os.clock() - time_stamp}})
     resp.status = 200
     return resp
 end
@@ -141,13 +148,14 @@ end
 3)  `http_account_get` позволяет получить значение заданного поля аккаунта.
 
 ```lua
+-- api.lua
 local function http_account_get(req)
     local time_stamp = os.clock()
 	local login = req:stash('login')
 	local field = req:stash('field')
 	local bucket_id = vshard.router.bucket_id(login)
 
-    --вызов функции get хранилища
+    -- запрос значения поля
 	local account_data, error = err_vshard_router:pcall(
         vshard.router.call,
         bucket_id,
@@ -155,49 +163,13 @@ local function http_account_get(req)
         'account_get',
         {login, field}
     )
-	
-    if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
+
+    local verification_status = verify_response(account_data, error, req)
+    if verification_status ~= true then
+        return verification_status
     end
 
-    --аккаунт не найден
-    if account_data == nil then
-        local resp = req:render({json = {
-            info = "Account not found",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 404
-        return resp
-    end
-
-    --сессия не активна 
-    if account_data == false then
-        local resp = req:render({json = {
-            info = "Sign in first. Session is down",
-            time = os.clock() - time_stamp,
-        }})
-        resp.status = 401
-        return resp
-    end
-
-    --неправильное поле
-    if account_data == -1 then
-        local resp = req:render({json = {
-            info = "Invalid field",
-            time = os.clock() - time_stamp,
-        }})
-        resp.status = 400
-        return resp
-    end
-
-    local resp = req:render({json = {info = account_data, 															time = os.clock() - time_stamp}})
+    local resp = req:render({json = {info = account_data, time = os.clock() - time_stamp}})
     resp.status = 200
     return resp
 end
@@ -206,6 +178,7 @@ end
 4) `http_account_update` изменяет значение заданного поля аккаунта.
 
 ```lua
+-- api.lua
 local function http_account_update(req)
     local time_stamp = os.clock()
 	local login = req:stash('login')
@@ -213,8 +186,8 @@ local function http_account_update(req)
 	local bucket_id = vshard.router.bucket_id(login)
 
 	local value = req:json().value
-
-    --вызов функции update хранилища
+	
+    -- обновление поля
 	local success, error = err_vshard_router:pcall(
         vshard.router.call,
         bucket_id,
@@ -223,155 +196,14 @@ local function http_account_update(req)
         {login, field, value}
     )
 
-    if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
+    local verification_status = verify_response(success, error, req)
+    if verification_status ~= true then
+        return verification_status
     end
 
-    --аккаунт не найден
-    if success == nil then
-        local resp = req:render({json = {
-            info = "Account not found",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 404
-        return resp
-    end
-
-    --сессия не активна
-    if success == false then
-        local resp = req:render({json = {
-            info = "Sign in first. Session is down",
-            time = os.clock() - time_stamp,
-        }})
-        resp.status = 401
-        return resp
-    end
-
-    --неправильное поле
-    if success == -1 then
-        local resp = req:render({json = {
-            info = "Invalid field",
-            time = os.clock() - time_stamp,
-        }})
-        resp.status = 400
-        return resp
-    end
-
-    local resp = req:render({json = {info = "Field updated", 
-                			time = os.clock() - time_stamp}})
+    local resp = req:render({json = {info = "Field updated", time = os.clock() - time_stamp}})
     resp.status = 200
     return resp
-end
-```
-
-
-
-Чтобы сделать пример более интересным, можно сымитировать проверку пароля. Для этого добавим следующие функции:
-
-`http_account_sign_in`: 
-
-``` lua
-local function http_account_sign_in(req)
-	local time_stamp = os.clock()
-	local login = req:stash('login')
-	local password = req:json().password
-	local bucket_id = vshard.router.bucket_id(login)
-
-	local success, error = err_vshard_router:pcall(
-        vshard.router.call,
-        bucket_id,
-        'write',
-        'account_sign_in',
-        {login, password}
-    )
-
-	if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
-    end
-
-    --аккаунт не найден
-    if success == nil then
-    	local resp = req:render({json = {
-            info = "Account not found",
-            time = os.clock() - time_stamp,
-            error = error
-       	 }})
-        resp.status = 404
-        return resp
-    end
-
-    --неправильный пароль
-    if success == false then
-    	local resp = req:render({json = {
-            info = "Wrong password",
-            time = os.clock() - time_stamp,
-            error = error,
-       	 }})
-        resp.status = 401
-        return resp
-    end
-
-    local resp = req:render({json = { info = "Accepted", time = os.clock() - time_stamp}})
-    resp.status = 202
-    return resp
-
-end
-```
-
-`http_sign_out`:
-
-```lua
-local function http_account_sign_out(req)
-    local time_stamp = os.clock()
-	local login = req:stash('login')
-	local bucket_id = vshard.router.bucket_id(login)
-
-	local success, error = err_vshard_router:pcall(
-        vshard.router.call,
-        bucket_id,
-        'write',
-        'account_sign_out',
-        {login}
-    )
-
-    --аккаунт не найден
-    if success == nil then
-    	local resp = req:render({json = {
-            info = "Account not found",
-            time = os.clock() - time_stamp,
-            error = error
-       	 }})
-        resp.status = 404
-        return resp
-    end
-
-	if error then
-        local resp = req:render({json = {
-            info = "Internal error",
-            time = os.clock() - time_stamp,
-            error = error
-        }})
-        resp.status = 500
-        return resp
-    end
-
-    local resp = req:render({json = { info = "Success", time = os.clock() - time_stamp}})
-    resp.status = 200
-    return resp
-
 end
 ```
 
@@ -380,6 +212,7 @@ end
 Назначим функции соответствующим запросам.
 
 ```lua
+-- api.lua
 local function init(opts)
     rawset(_G, 'vshard', vshard)
 
@@ -398,14 +231,6 @@ local function init(opts)
     end
 
     -- назначение обработчиков
-    httpd:route(
-        { path = '/storage/:login/sign_in', method = 'PUT', public = true },
-        http_account_sign_in
-    )
-	httpd:route(
-        { path = '/storage/:login/sign_out', method = 'PUT', public = true },
-        http_account_sign_out
-    )
 	httpd:route(
         { path = '/storage/:login/update/:field', method = 'PUT', public = true },
         http_account_update
@@ -430,6 +255,7 @@ end
 В конце необходимо вернуть данные о роли.
 
 ```lua
+-- api.lua
 return {
     role_name = 'api',
     init = init,
@@ -441,46 +267,60 @@ return {
 
 
 
-## 2. Обычный кеш
+## 2. Обычный кэш
 
-Сперва необходимо подключить все необходимые модули и сопоставить имя поля с номером (для удобства).
+Сперва необходимо подключить все необходимые модули.
 
 ```lua
+-- simple_cache.lua
 local checks = require('checks') -- для проверки аргументов функций
-local lru = require('lru') -- кеш lru, реализованный с помощью двухсвязного списка
+local lru = require('lru') -- кэш lru, реализованный с помощью двухсвязного списка
 local log = require('log')
-
-local field_no = {
-    name = 5,
-    email = 6,
-    data = 8,
-}
 ```
 
-
-
-`verify_session`  используется для проверки существования и доступности аккаунта.
+Функция `tuple_to_map` имеет вспомогательный характер и, как следует из названия, преобразует tuple в map.
 
 ```lua
-local function verify_session(account)
-    if account == nil then --аккаунт не найден
-        return false, nil
-    end
+-- simple_cache.lua
+local function tuple_to_map(account)
+    
+    local res = 
+    {
+        login = account[1],
+        password = account[2],
+        bucket_id = account[3],
+        name = account[4],
+        email = account[5],
+        last_action = account[6],
+        data = account[7],
+    }
 
-    if account[3] == 1 then --если сессия активна, вернуть true
+    return res
+end
+```
+
+Функция `verify_field` проверяет корректность поля, к которому обращается пользователь.
+
+```lua
+-- simple_cache.lua
+local function verify_field(field)
+    checks('string')
+    
+    if (field == 'name') or (field == 'email') or (field == 'data') 
+    or (field == 'password') or (field == 'login') or (field == 'last_action') then
         return true
     end
-    
-	--сессия не активна
-    return false, false
+
+    return false
 end
 ```
 
 
 
-1)  Сначала необходимо инициализировать хранилище кеша. Сделать это можно с помощью `box.schema.space.create`.
+1)  Сначала необходимо инициализировать хранилище кэша. Сделать это можно с помощью `box.schema.space.create`.
 
 ```lua
+-- simple_cache.lua
 local function init_spaces()
     local account = box.schema.space.create(
         'account',
@@ -488,7 +328,6 @@ local function init_spaces()
             format = {
                 {'login', 'string'},
                 {'password', 'string'},
-                {'session', 'number'},
                 {'bucket_id', 'unsigned'},
                 {'name', 'string'},
                 {'email', 'string'},
@@ -496,7 +335,7 @@ local function init_spaces()
                 {'data', 'string'}
             },
             if_not_exists = true,
-            engine = 'memtx', -- движок для хранения данных в RAM
+            engine = 'memtx',
         }
     )
 
@@ -510,25 +349,25 @@ local function init_spaces()
         unique = false,
         if_not_exists = true,
     })
+
 end
 ```
 
-2)  `account_add` создает новый аккаунт в кеше.
+2)  `account_add` создает новый аккаунт в кэше.
 
 ```lua
+-- simple_cache.lua
 local function account_add(account)
     
-    --проверка существования
-    local tmp = box.space.account:get(account.login) --
+    -- проверка существования аккаунта
+    local tmp = box.space.account:get(account.login) 
     if tmp ~= nil then
         return false
     end
 
-    --добавление нового аккаунта
     box.space.account:insert({
         account.login,
         account.password,
-        1,
         account.bucket_id,
         account.name,
         account.email,
@@ -540,20 +379,18 @@ local function account_add(account)
 end
 ```
 
-3)  `account_delete` удаляет аккаунт из кеша.
+3)  `account_delete` удаляет аккаунт из кэша.
 
 ```lua
+-- simple_cache.lua
 local function account_delete(login)
     checks('string')
 
-    --проверка существования и достпуности
-    local account = box.space.account:get(login) 
-    local valid, err = verify_session(account)
-    if not valid then
-        return err
+    local account = box.space.account:get(login)
+    if account == nil then
+        return nil
     end
 
-    --удаление аккаунта
     local account = box.space.account:delete(login)
 
     return true
@@ -563,108 +400,51 @@ end
 4)  `account_get` возвращает значения определенного поля аккаунта.
 
 ```lua
+-- simple_cache.lua
 local function account_get(login, field)
     checks('string', 'string')
-
-    --проверка корректности поля
-    local field_n = field_no[field] 
-    if field_n == nil then 
+	
+    -- проверка корректности поля
+    if(verify_field(field) ~= true) then 
         return -1
     end
 
-    --проверка существования и достпуности
-    local account = box.space.account:get(login) 
-    local valid, err = verify_session(account)
-    if not valid then
-        return err
+    local account = box.space.account:get(login)
+    if account == nil then
+        return nil
     end
 
-    --обновление времени последнего обращения к аккаунту
-    box.space.account:update({login}, {
-        {'=', 7, os.time()}
-    })
+    account = tuple_to_map(account)
+    account["last_action"] = os.time()
 
-    return account[field_n]
+    box.space.account:replace(box.space.account:frommap(account))
+
+    return account[field]
 end
 ```
 
 5) Функция `account_update` позволяет изменять значения определенного поля аккаунта.
 
 ```lua
+-- simple_cache.lua
 local function account_update(login, field, value)
 
-    --проверка корректности поля
-    local field_n = field_no[field]
-    if field_n == nil then 
+    -- проверка корректности поля
+    if(verify_field(field) ~= true) then 
         return -1
     end
 
-    --проверка существования и доступности
     local account = box.space.account:get(login)
-    local valid, err = verify_session(account)
-    if not valid then
-        return err
-    end
-
-    --обновление заданного поля и времени последнего обращения
-    box.space.account:update({ login }, {
-        { '=', field_n, value},
-        { '=', 7, os.time()}
-    })
-
-    return true
-end
-```
-
-
-
-Для проверки паролей добавим следующие функции:
-
-`account_sign_in`:
-
-```lua
-local function account_sign_in(login, password)
-    checks('string', 'string')
-
-   	--проверка существования
-    local account = box.space.account:get(login) 
-    if account == nil then 
+    if account == nil then
         return nil
     end
 
-    --проверка корректности пароля
-    if password ~= account[2] then 
-        return false
-    end
+    --обновление поля
+    account = tuple_to_map(account)
+    account[field] = value
+    account["last_action"] = os.time()
 
-    --создание сессии и обновление времени последнего обращения 
-    box.space.account:update({ login } , {
-        {'=', 3, 1},
-        {'=', 7, os.time()}
-    })
-
-    return true
-end
-```
-
-`account_sign_out`:
-
-```lua
-local function account_sign_out(login)
-    checks('string')
-
-    --проверка существования и доступности 
-    local account = box.space.account:get(login) 
-    local valid, err = verify_session(account)
-    if not valid then
-        return err
-    end
-
-    --закрытие сессии и обновление времени последнего обращения
-    box.space.account:update({ login } , {
-        {'=', 3, -1},
-        {'=', 7, os.time()} --update last action timestamp
-    })
+    box.space.account:replace(box.space.account:frommap(account))
 
     return true
 end
@@ -675,30 +455,25 @@ end
 Теперь можно инициализировать хранилище и объявить функции.
 
 ```lua
+-- simple_cache.lua
 local function init(opts)
     if opts.is_master then
 
         init_spaces()
 
         box.schema.func.create('account_add', {if_not_exists = true})
-        box.schema.func.create('account_sign_in', {if_not_exists = true})
-        box.schema.func.create('account_sign_out', {if_not_exists = true})
         box.schema.func.create('account_delete', {if_not_exists = true})
         box.schema.func.create('account_update', {if_not_exists = true})
         box.schema.func.create('account_get', {if_not_exists = true})
 
-        box.schema.role.grant('public', 'execute', 'function', 'account_add', 											{if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'account_sign_in', 										{if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'account_sign_out', 										{if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'account_delete', 										{if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'account_update', 										{if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'account_get', 											{if_not_exists = true})
+        box.schema.role.grant('public', 'execute', 'function', 'account_add', {if_not_exists = true})
+        box.schema.role.grant('public', 'execute', 'function', 'account_delete', {if_not_exists = true})
+        box.schema.role.grant('public', 'execute', 'function', 'account_update', {if_not_exists = true})
+        box.schema.role.grant('public', 'execute', 'function', 'account_get', {if_not_exists = true})
 
     end
 
     rawset(_G, 'account_add', account_add)
-    rawset(_G, 'account_sign_in', account_sign_in)
-    rawset(_G, 'account_sign_out', account_sign_out)
     rawset(_G, 'account_get', account_get)
     rawset(_G, 'account_delete', account_delete)
     rawset(_G, 'account_update', account_update)
@@ -710,6 +485,7 @@ end
 В конце необходимо вернуть данные о роли.
 
 ```lua
+-- simple_cache.lua
 return {
     role_name = 'simple_cache',
     init = init,
@@ -717,40 +493,42 @@ return {
         'cartridge.roles.vshard-storage',
     },
     utils = {
-        verify_session = verify_session,
         account_add = account_add, 
         account_update = account_update,
         account_delete = account_delete, 
         account_get = account_get,
-        account_sign_in = account_sign_in, 
-        account_sign_out = account_sign_out,
     }
 }
 ```
 
 
 
-## 3. Кеш с базой данных MySQL
+## 3. Кэш с базой данных MySQL
 
-Эффективным подходом при работе с базами данных является разделение данных на горячие и холодные. Горячие данные хранятся в кеше, что обеспечивает высокую скорость доступа, а холодные находятся в базе данных на жестоком диске. Реализуем подобную схему с помощью MySQL. Модифицируем для этого обычный кеш.
+Эффективным подходом при работе с базами данных является разделение данных на горячие и холодные. Горячие данные хранятся в кэше, что обеспечивает высокую скорость доступа, а холодные находятся в базе данных на жестоком диске. Реализуем подобную схему с помощью MySQL. Инструкцию по установке MySQL можно найти по [этой ссылке](https://dev.mysql.com/doc/mysql-installation-excerpt/5.7/en/). 
 
-Но сперва необходимо настроить хранилище в MySQL. Сделать это можно с помощью следующих команд:
+Сперва необходимо настроить хранилище в MySQL. Сделать это можно с помощью следующих команд:
 
 ```bash
 mysql> CREATE DATABASE tarantool;
 mysql> USE tarantool;
-mysql> CREATE TABLE account (login VARCHAR(30), password VARCHAR(30), session TINYINT, 						bucket_id INT, name VARCHAR(30), email VARCHAR(30), data VARCHAR(30));
-
+mysql> CREATE TABLE account (login VARCHAR(30), password VARCHAR(30), bucket_id INT, name VARCHAR(30), email VARCHAR(30), last_action INT, data VARCHAR(30))
 ```
 
+Модифицируем кэш из предыдущего примера. Воспользуемся коннектором MySQL, который реализован в Tarantool.
 
+```lua
+-- cache_mysql.lua
+local mysql = require('mysql')
+```
 
-Добавим две глобальные переменные. `lru_cache` реализует работу lru кеша. При превышении кол-ва аккаунтов в кеше некоторого значения `cache_size` из него удаляется объект, к которому дольше всего не обращались.  `conn` осуществляет взаимодействие с MySQL.
+Добавим две глобальные переменные. `lru_cache` реализует работу lru кэша. При превышении кол-ва аккаунтов в кэше некоторого значения `cache_size` из него удаляется объект, к которому дольше всего не обращались.  `conn` осуществляет взаимодействие с MySQL.
 
 Добавим в  `init_spaces` следующие строки:
 
 ```lua
---подключение к базе данных MySQL
+-- cache_mysql.lua
+-- подключение к базе данных MySQL
 conn = mysql.connect({
         host = '127.0.0.1', 
         user = 'root', 
@@ -758,44 +536,44 @@ conn = mysql.connect({
         db = 'tarantool'
     })
 
---создание и заполнение lru кеша
+-- создание и запуск файбера для обновления данных в холодном хранилище
+fiber.create(fiber_routine)
+
+-- создание и заполнение lru кэша
 lru_cache = lru.new(cache_size)
-for k, account in box.space.account:pairs() do --прогрев кеша
+for k, account in box.space.account:pairs() do --прогрев кэша
     update_cache(account[1])
 end
 ```
 
 
 
-При отсутствии данных в кеше их необходимо загрузить из MySQL. 
+При отсутствии данных в кэше их необходимо загрузить из MySQL. 
 
 ```lua
-local function fetch(login)
-    checks('string') 
+-- cache_mysql.lua
+local function fetch(login) 
+    checks('string')
+	-- обращение к MySQL
+    local account = conn:execute(string.format("SELECT * FROM account WHERE login = \'%s\'", login))
 
-    --запрос аккаунта с заданным логином
-    local account = conn:execute(string.format(
-            "SELECT * FROM account WHERE login = \'%s\'", login))
-
-    --если он не существует, то вернуть nil
     if (#account[1] == 0) then 
         return nil
     end
 
-    --добавить данный аккаунт в кеш
     account = account[1][1]
-    local time = os.time()
     local tmp = {
         account.login,
         account.password,
-        account.session,
         account.bucket_id,
         account.name,
         account.email,
-        time,
+        os.time(),
         account.data
     }
-	box.space.account:insert(tmp)
+	
+    -- добавление аккаунта в кэш
+    box.space.account:insert(tmp) 
 
     log.info(string.format("\'%s\' uploaded from mysql", tmp[1]))
 
@@ -803,40 +581,40 @@ local function fetch(login)
 end
 ```
 
-Теперь в функциях `account_add`, `account_update`, `account_get` и т.д. нужно изменить формат запроса аккаунта. Если его нет в кеше, то нужно проверить холодное хранилище прежде, чем сообщать об отсутствии.
+Теперь в функциях `account_add`, `account_update`, `account_get` и т.д. нужно изменить формат запроса аккаунта. Если его нет в кэше, то нужно проверить холодное хранилище прежде, чем сообщать об отсутствии.
 
 ```lua
-local account = box.space.account:get(login) --запрос аккаунта в кеше
+-- cache_mysql.lua
+local account = box.space.account:get(login)
 if account == nil then
-	account = fetch(login) --если нет в кеше, то запрос в MySQL
+    account = fetch(login) -- обращение к MySQL если аккаунт не найден в кэше
 end
 
---проверка существования и доступности
-local valid, err = verify_session(account)
-if not valid then
-	return err
+if account == nil then
+    return nil
 end
 ```
 
 Таким образом реализуется загрузка данных из холодного хранилища. Но если к данным долго не обращаются, то их следует удалить из горячего хранилища. 
 
 ```lua
+-- cache_mysql.lua
 local function update_cache(login)
     checks('string')
 
-    --обновление положения аккаунта login в очереди кеша
+    -- обновление положения аккаунта login в очереди кэша
     local result, err = lru_cache:touch(login)
 
     if err ~= nil then
         return nil, err
     end
 
-    --если кеш не переполнен, то ничего удалять не нужно
+    -- если кэш не переполнен, то ничего удалять не нужно
     if result == true then 
         return true
     end
     
-    --иначе удаление невостребованного элемента
+    -- иначе удаление невостребованного элемента
     log.info(string.format("Removing \'%s\' from cache", result))
     box.space.account:delete(result)
 
@@ -846,9 +624,10 @@ end
 
 `update_cache` следует вызывать при каждом взаимодействии с данными. 
 
-При обновлении данных в кеше их можно сразу же обновлять и в холодном хранилище. Кроме того, изменения можно накапливать и обновлять хранилище разом. Порой подобный подход более эффективен. Для этого создадим массив `write_queue`. При изменении аккаунта он помещается в `write_queue` с помощью функции  `set_to_update`.
+При обновлении данных в кэше их можно сразу же обновлять и в холодном хранилище. Кроме того, изменения можно накапливать и обновлять хранилище батчами. Для этого создадим массив `write_queue`. При изменении аккаунта он помещается в `write_queue` с помощью функции  `set_to_update`.
 
 ```lua
+-- cache_mysql.lua
 local function set_to_update(login)
     checks('string')
 
@@ -864,27 +643,35 @@ end
  Накопленные изменения записываются в холодное хранилище.
 
 ```lua
-local function write_behind()
+-- cache_mysql.lua
+local function write_behind() 
 
+    local batch = {}
     for login, _ in pairs(write_queue) do
 
         local account = box.space.account:get(login)
         if (account ~= nil) then
-            
-            --обновление аккаунта в базе данных MySQL
-            conn:execute(string.format("REPLACE INTO account value (\'%s\', \'%s\', 					\'%d\', \'%d\', \'%s\', \'%s\', \'%s\')", 
-                account[1], 
-                account[2], 
-                account[3], 
-                account[4], 
-                account[5], 
-                account[6], 
-                account[8]
-            ))
-
-            log.info(string.format("\'%s\' updated in mysql", account[1]))
-            
+            table.insert(batch, account)
         end
+            
+        if (#batch >= batch_size) then
+            conn:begin()
+            
+            update_batch(batch)
+            batch = {}
+            
+            conn:commit()
+        end
+
+    end
+
+    if (#batch ~= 0) then
+        conn:begin()
+        
+        update_batch(batch)
+        batch = {}
+        
+        conn:commit()
     end
 
     write_queue = {}
@@ -892,48 +679,89 @@ local function write_behind()
 end
 ```
 
+Данные группируются в батчи для обновления в холодном хранилище, что реализовано в функции `update_batch`.
 
+```lua
+-- cache_mysql.lua
+local function update_batch(batch)
+
+    for _, account in ipairs(batch) do
+        
+        conn:execute(string.format("REPLACE INTO account value (\'%s\', \'%s\', \'%d\', \'%s\', \'%s\', \'%d\', \'%s\')", 
+            account[1], 
+            account[2], 
+            account[3], 
+            account[4], 
+            account[5], 
+            account[6], 
+            account[7]
+        ))
+
+        log.info(string.format("\'%s\' updated in mysql", account[1]))
+
+    end
+end
+```
+
+`write_behind` необходимо запускать периодически. Для этого запущен файбер выполняющий функцию `fiber_routine`.
+
+```lua
+-- cache_mysql.lua
+local function fiber_routine()
+    while true do
+        fiber.testcancel()
+        if (os.time() - last_update) > update_period then
+            write_behind()
+            last_update = os.time()
+        end
+        
+        fiber.sleep(1)
+    end
+end
+```
 
 В функции `account_delete` нужно также удалить аккаунт из холодного хранилища.
 
 ```     lua
+-- cache_mysql.lua
 conn:execute(string.format("DELETE FROM account WHERE login = \'%s\'", login ))
 ```
 
 
 
-## 4. Кеш с базой данных Vinyl
+## 4. Кэш с базой данных Vinyl
 
-Хорошей альтернативой MySQL является Vinyl, встроенный в Tarantool. Первым делом вместо подключения к MySQL в `init_spaces` настроим новое хранилище:
+Для хранения холодных данных можно использовать Vinyl, встроенный в Tarantool. Первым делом вместо подключения к MySQL в `init_spaces` настроим новое хранилище:
 
 ```lua
-local account_vinyl = box.schema.space.create(
+-- cache_vinyl.lua
+local account_vinyl = box.schema.space.create( --init additional storage for cold data
     'account_vinyl',
     {
         format = {
-        {'login', 'string'},
-        {'password', 'string'},
-        {'session', 'number'},
-        {'bucket_id', 'unsigned'},
-        {'name', 'string'},
-        {'email', 'string'},
-        {'data', 'string'}
-    },
-    if_not_exists = true,
-    engine = 'vinyl'
+            {'login', 'string'},
+            {'password', 'string'},
+            {'bucket_id', 'unsigned'},
+            {'name', 'string'},
+            {'email', 'string'},
+            {'last_action', 'unsigned'},
+            {'data', 'string'}
+        },
+        if_not_exists = true,
+        engine = 'vinyl'
     }
 )
 
 account_vinyl:create_index('login', {
-    parts = {'login'},
-    if_not_exists = true,
-})
+        parts = {'login'},
+        if_not_exists = true,
+    })
 
 account_vinyl:create_index('bucket_id', {
-    parts = {'bucket_id'},
-    unique = false,
-    if_not_exists = true,
-})
+        parts = {'bucket_id'},
+        unique = false,
+        if_not_exists = true,
+    })
 ```
 
 Вся логика работы с аккаунтами остается та же, необходимо лишь слегка изменить вспомогательные функции.
@@ -941,65 +769,93 @@ account_vinyl:create_index('bucket_id', {
 `fetch`:
 
 ```lua
-local function fetch(login) 
+-- cache_vinyl.lua
+local function fetch(login)
     checks('string')
-	
-    --проверка существования
-    local account = box.space.account_vinyl:get(login) 
+
+    local account = box.space.account_vinyl:get(login)
     if account == nil then 
         return nil
     end
-	
-    --добавление аккаунта в кеш
-    local time = os.time()
+
     local tmp = {
         account.login,
         account.password,
-        account.session,
         account.bucket_id,
         account.name,
         account.email,
-        time,
+        os.time(),
         account.data
     }
-	box.space.account:insert(tmp)   
+    box.space.account:insert(tmp)  
 
     log.info(string.format("\'%s\' uploaded from vinyl", tmp[1]))
     return tmp
 end
 ```
 
+`update_batch`:
+
+```lua
+-- cache_vinyl.lua
+local function update_batch(batch)
+
+    for _, account in ipairs(batch) do
+        box.space.account_vinyl:upsert({
+            account[1], 
+            account[2], 
+            account[3], 
+            account[4], 
+            account[5], 
+            account[6], 
+            account[7],
+        }, {
+            {'=', 1, account[1]},
+            {'=', 2, account[2]},
+            {'=', 3, account[3]},
+            {'=', 4, account[4]},
+            {'=', 5, account[5]},
+            {'=', 6, account[6]},
+            {'=', 7, account[7]}
+        })
+
+        log.info(string.format("\'%s\' updated in vinyl", account[1]))
+    end
+end
+```
+
 `write_behind`:
 
 ```lua
-local function write_behind()
+-- cache_vinyl.lua
+local function write_behind() --update changed tuple in vinyl storage
 
+    local batch = {}
     for login, _ in pairs(write_queue) do
 
         local account = box.space.account:get(login)
         if (account ~= nil) then
-            
-            --обновление аккаунта в vinyl
-            box.space.account_vinyl:upsert({
-                account[1], 
-                account[2], 
-                account[3], 
-                account[4], 
-                account[5], 
-                account[6], 
-                account[8],
-            }, {
-                {'=', 1, account[1]},
-                {'=', 2, account[2]},
-                {'=', 3, account[3]},
-                {'=', 4, account[4]},
-                {'=', 5, account[5]},
-                {'=', 6, account[6]},
-                {'=', 7, account[8]}
-            })
-
-            log.info(string.format("\'%s\' updated in vinyl", account[1]))
+            table.insert(batch, account)
         end
+            
+        if (#batch >= batch_size) then
+            box.begin()
+            
+            update_batch(batch)
+            batch = {}
+            
+            box.commit()
+        end
+
+    end
+
+    if (#batch ~= 0) then
+        box.begin()
+        
+        update_batch(batch)
+        batch = {}
+        
+        box.commit()
     end
 
     write_queue = {}
@@ -1007,9 +863,12 @@ local function write_behind()
 end
 ```
 
+
+
 А в `account_delete` добавятся следующие строки:
 
 ```lua
+-- cache_vinyl.lua
 if peek_vinyl(login) then
 	box.space.account_vinyl:delete(login)
 end
@@ -1018,6 +877,7 @@ end
 где `peek_vinyl` - это функция, которая проверяет наличие аккаунта в хранилище.
 
 ```lua
+-- cache_vinyl.lua
 local function peek_vinyl(login) 
     checks('string')
 
@@ -1035,6 +895,7 @@ end
 В `init.lua` необходимо указать роли, которые будут исползоваться кластером.
 
 ```lua
+-- init.lua
 local cartridge = require('cartridge')
 local ok, err = cartridge.cfg({
     roles = {
@@ -1052,6 +913,7 @@ local ok, err = cartridge.cfg({
 А в файле `cache-scm-1.rockspec` нужно указать все внешние заисимости.
 
 ```lua
+-- cache-scm-1.rockspec
 package = 'cache'
 version = 'scm-1'
 source  = {
@@ -1075,9 +937,10 @@ build = {
 
 ### Модульные тесты
 
-Для проверки работы отдельных модулей кластера и ролей используются модульные тесты. Тесты для каждой роли можно найти в папке `test/unit`. В данном случае взаимодействие кеша с хранилищем MySQL имитируется с помощью заглушки `mysql_mock.lua` в папке `test`.
+Для проверки работы отдельных модулей кластера и ролей используются модульные тесты. Тесты для каждой роли можно найти в папке `test/unit`. В данном случае взаимодействие кэша с хранилищем MySQL имитируется с помощью заглушки `mysql_mock.lua` в папке `test`.
 
 ```lua
+-- mysql_mock.lua
 local connection = {
 	storage = {}
 }
@@ -1096,10 +959,10 @@ function connection:execute(request)
 		self.storage[data[2]] = {
 			login = data[2],
 			password = data[4],
-			session = tonumber(data[6]),
-			bucket_id = tonumber(data[8]),
-			name = data[10],
-			email = data[12],
+			bucket_id = tonumber(data[6]),
+			name = data[8],
+			email = data[10],
+			last_action = data[12],
 			data = data[14],
 		}
 		return 
@@ -1112,16 +975,24 @@ function connection:execute(request)
 	end
 end
 
+function connection:begin()
+	return nil
+end
+
+function connection:commit()
+	return nil
+end
+
 function connection:rollback()
 
 	self.storage = {}
 	self.storage["Mura"] = {
         login = "Mura",
         password = "1243",
-        session = -1,
         bucket_id = 2,
         name = "Tom",
         email = "tom@mail.com",
+        last_action = os.time(),
         data = "another secret"
     }
 
@@ -1132,10 +1003,10 @@ function connect(args)
 	connection.storage["Mura"] = {
         login = "Mura",
         password = "1243",
-        session = -1,
         bucket_id = 2,
         name = "Tom",
         email = "tom@mail.com",
+        last_action = os.time(),
         data = "another secret"
     }
 
@@ -1213,7 +1084,7 @@ g.before_all(function()
 		{
 	            alias = 'storage',
 	            uuid = cartridge_helpers.uuid('b'),
-	            roles = {'simple_cache'}, --пример для обычного кеша
+	            roles = {'simple_cache'}, --пример для обычного кэша
 	            servers = {{ instance_uuid = cartridge_helpers.uuid('b', 1),
 	            			advertise_port = 13302,
 	            			http_port = 8082 
@@ -1268,7 +1139,7 @@ cache $ cartridge start
 
 ![](tutorial_images/router.png)
 
-Затем назначим кеш.
+Затем назначим кэш.
 
 ![](tutorial_images/cache.png)
 
@@ -1313,93 +1184,7 @@ $ curl -X POST -v -H "Content-Type: application/json" -d '{
 {"info":"Account successfully created","time":0.00012199999999973}
 ```
 
-Завершим сессию:
-
-```bash
-$ curl -X PUT -v  http://localhost:8081/storage/root1/sign_out
-```
-
-```
-*   Trying 127.0.0.1:8081...
-* TCP_NODELAY set
-* Connected to localhost (127.0.0.1) port 8081 (#0)
-> PUT /storage/root1/sign_out HTTP/1.1
-> Host: localhost:8081
-> User-Agent: curl/7.65.3
-> Accept: */*
-> 
-* Mark bundle as not supporting multiuse
-< HTTP/1.1 200 Ok
-< Content-length: 45
-< Server: Tarantool http (tarantool v1.10.4-68-gf8f8adfab)
-< Content-type: application/json; charset=utf-8
-< Connection: keep-alive
-< 
-* Connection #0 to host localhost left intact
-{"info":"Success","time":0.00031399999999948}
-```
-
 Попробуем изменить имя:
-
-```bash
-$ curl -X PUT -v -H "Content-Type: application/json" -d '{"value": "Bob"}' http://localhost:8081/storage/root1/update/name
-```
-
-И нам резонно отказано в доступе:
-
-```bash
-*   Trying 127.0.0.1:8081...
-* TCP_NODELAY set
-* Connected to localhost (127.0.0.1) port 8081 (#0)
-> PUT /storage/root1/update/name HTTP/1.1
-> Host: localhost:8081
-> User-Agent: curl/7.65.3
-> Accept: */*
-> Content-Type: application/json
-> Content-Length: 16
-> 
-* upload completely sent off: 16 out of 16 bytes
-* Mark bundle as not supporting multiuse
-< HTTP/1.1 401 Unauthorized
-< Content-length: 68
-< Server: Tarantool http (tarantool v1.10.4-68-gf8f8adfab)
-< Content-type: application/json; charset=utf-8
-< Connection: keep-alive
-< 
-* Connection #0 to host localhost left intact
-{"info":"Sign in first. Session is down","time":0.00012100000000004}
-```
-
-Создаем сессию:
-
-```bash
-$ curl -X PUT -v -H "Content-Type: application/json" -d '{"password": "1234"}' http://localhost:8081/storage/root1/sign_in
-```
-
-```
-*   Trying 127.0.0.1:8081...
-* TCP_NODELAY set
-* Connected to localhost (127.0.0.1) port 8081 (#0)
-> PUT /storage/root1/sign_in HTTP/1.1
-> Host: localhost:8081
-> User-Agent: curl/7.65.3
-> Accept: */*
-> Content-Type: application/json
-> Content-Length: 20
-> 
-* upload completely sent off: 20 out of 20 bytes
-* Mark bundle as not supporting multiuse
-< HTTP/1.1 202 Accepted
-< Content-length: 46
-< Server: Tarantool http (tarantool v1.10.4-68-gf8f8adfab)
-< Content-type: application/json; charset=utf-8
-< Connection: keep-alive
-< 
-* Connection #0 to host localhost left intact
-{"info":"Accepted","time":0.00016399999999983}
-```
-
-Повторяем попытку изменить имя:
 
 ```bash
 $ curl -X PUT -v -H "Content-Type: application/json" -d '{"value": "Bob"}' http://localhost:8081/storage/root1/update/name

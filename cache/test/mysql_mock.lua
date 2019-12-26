@@ -16,10 +16,10 @@ function connection:execute(request)
 		self.storage[data[2]] = {
 			login = data[2],
 			password = data[4],
-			session = tonumber(data[6]),
-			bucket_id = tonumber(data[8]),
-			name = data[10],
-			email = data[12],
+			bucket_id = tonumber(data[6]),
+			name = data[8],
+			email = data[10],
+			last_action = data[12],
 			data = data[14],
 		}
 		return 
@@ -32,16 +32,24 @@ function connection:execute(request)
 	end
 end
 
+function connection:begin()
+	return nil
+end
+
+function connection:commit()
+	return nil
+end
+
 function connection:rollback()
 
 	self.storage = {}
 	self.storage["Mura"] = {
         login = "Mura",
         password = "1243",
-        session = -1,
         bucket_id = 2,
         name = "Tom",
         email = "tom@mail.com",
+        last_action = os.time(),
         data = "another secret"
     }
 
@@ -52,10 +60,10 @@ function connect(args)
 	connection.storage["Mura"] = {
         login = "Mura",
         password = "1243",
-        session = -1,
         bucket_id = 2,
         name = "Tom",
         email = "tom@mail.com",
+        last_action = os.time(),
         data = "another secret"
     }
 
