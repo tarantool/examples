@@ -19,30 +19,52 @@ local test_profile = {
     service_info = 'admin'
 }
 
+local test_profile_no_shadow = deepcopy(test_profile)
+test_profile_no_shadow.bucket_id = nil
+
+local password_data = utils.create_password('qwerty')
+test_profile.shadow = password_data.shadow
+test_profile.salt = password_data.salt
+
 g.test_sample = function()
     t.assert_equals(type(box.cfg), 'table')
     
 end
 
 g.test_profile_get_not_found = function()
-    t.assert_equals(utils.profile_get(1), nil)
+    local res = utils.profile_get(1, 'password')
+    res.error = res.error.err
+    t.assert_equals(res, {profile = nil, error = "Profile not found"})
 end
 
 g.test_profile_get_found = function()
     box.space.profile:insert(box.space.profile:frommap(test_profile))
-    local no_bucket_profile = deepcopy(test_profile)
-    no_bucket_profile.bucket_id = nil
-    t.assert_equals(utils.profile_get(1), no_bucket_profile)
+    t.assert_equals(utils.profile_get(1, 'qwerty'), {profile = test_profile_no_shadow, error = nil})
+end
+
+g.test_profile_get_unauthorized = function()
+    box.space.profile:insert(box.space.profile:frommap(test_profile))
+    local res = utils.profile_get(1, 'password')
+    res.error = res.error.err
+    t.assert_equals(res, {profile = nil, error = "Unauthorized"})
 end
 
 g.test_profile_add_ok = function()
-    t.assert_equals(utils.profile_add(deepcopy(test_profile)), true)
-    t.assert_equals(box.space.profile:get(1), box.space.profile:frommap(test_profile))
+    local to_insert = deepcopy(test_profile)
+    to_insert.password = 'qwerty'
+    t.assert_equals(utils.profile_add(to_insert), {ok = true})
+    to_insert.password = nil
+    local from_space = box.space.profile:get(1)
+    to_insert.shadow = from_space.shadow
+    to_insert.salt = from_space.salt;
+    t.assert_equals(from_space, box.space.profile:frommap(to_insert))
 end
 
 g.test_profile_add_conflict = function()
     box.space.profile:insert(box.space.profile:frommap(test_profile))
-    t.assert_equals(utils.profile_add(deepcopy(test_profile)), false)
+    local res = utils.profile_add(test_profile)
+    res.error = res.error.err
+    t.assert_equals(res, {ok = false, error = "Profile already exist"})
 end
 
 g.test_profile_update_ok = function()
@@ -56,26 +78,45 @@ g.test_profile_update_ok = function()
     local updated_profile = deepcopy(test_profile)
     updated_profile.msgs_count = changes.msgs_count
     updated_profile.first_name = changes.first_name
+    local updated_no_shadow = deepcopy(test_profile_no_shadow)
+    updated_no_shadow.msgs_count = changes.msgs_count
+    updated_no_shadow.first_name = changes.first_name
 
-    local no_bucket_profile = deepcopy(updated_profile)
-    no_bucket_profile.bucket_id = nil
-
-    t.assert_equals(utils.profile_update(1, changes), no_bucket_profile)
+    t.assert_equals(utils.profile_update(1, 'qwerty', changes), {profile = updated_no_shadow})
     t.assert_equals(box.space.profile:get(1), box.space.profile:frommap(updated_profile))
 end
 
 g.test_profile_update_not_found = function()
-    t.assert_equals(utils.profile_update(1, {msgs_count = 111}), nil)
+    local res = utils.profile_update(1, 'qwerty',{msgs_count = 111})
+    res.error = res.error.err
+    t.assert_equals(res, {profile = nil, error = res.error})
+end
+
+g.test_profile_update_unauthorized = function()
+    box.space.profile:insert(box.space.profile:frommap(test_profile))
+    local res = utils.profile_update(1, 'password', {msgs_count = 200})
+    res.error = res.error.err
+    t.assert_equals(res, {profile = nil, error = "Unauthorized"})
+end
+
+g.test_profile_update_password = function()
+    box.space.profile:insert(box.space.profile:frommap(test_profile))
+    local res = utils.profile_update(1, 'qwerty', {password = 'password'})
+    t.assert_equals(res,{profile = test_profile_no_shadow})
+    local profile = box.space.profile:get(1)
+    t.assert_equals(utils.password_digest('password', profile.salt), profile.shadow, 'incorrect shadow using profile salt')
 end
 
 g.test_profile_delete_ok = function()
     box.space.profile:insert(box.space.profile:frommap(test_profile))
-    t.assert_equals(utils.profile_delete(1), true)
+    t.assert_equals(utils.profile_delete(1, 'qwerty'), {ok = true})
     t.assert_equals(box.space.profile:get(1), nil, 'tuple must be deleted from space')
 end
 
 g.test_profile_delete_not_found = function()
-    t.assert_equals(utils.profile_delete(1), false)
+    local res = utils.profile_delete(1, 'qwerty')
+    res.error = res.error.err
+    t.assert_equals(res, {ok = false, error = "Profile not found"})
 end
 
 g.before_all(function()
