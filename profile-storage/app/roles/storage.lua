@@ -1,21 +1,13 @@
 -- модуль проверки аргументов в функциях
 local checks = require('checks')
 
-local digest = require('digest')
-local fiber = require('fiber')
 local errors = require('errors')
 
+-- модуль с функциями создания и проверки пароля
+local auth = require('app.auth')
+
+-- класс ошибок дуступа к хранилищу профилей
 local err_storage = errors.new_class("Storage error")
-
-local SALT_LENGTH = 16
-
-local function complete_table(major, minor)
-    for k, v in pairs(major) do
-        if minor[k] == nil then
-            minor[k] = v
-        end
-    end
-end
 
 local function tuple_to_map(format, tuple)
     local map = {}
@@ -23,37 +15,6 @@ local function tuple_to_map(format, tuple)
         map[i.name] = tuple[i.name]
     end
     return map
-end
-
-
-local function generate_salt(length)
-    return digest.base64_encode(
-        digest.urandom(length - bit.rshift(length, 2)),
-        {nopad=true, nowrap=true}
-    ):sub(1, length)
-end
-
-local function password_digest(password, salt)
-    return digest.pbkdf2(password, salt)
-end
-
-local function create_password(password)
-    checks('string')
-
-    local salt = generate_salt(SALT_LENGTH)
-
-    local shadow = password_digest(password, salt)
-
-    return {
-        shadow = shadow,
-        salt = salt,
-    }
-end
-
-local function check_password(profile, password)
-    checks('table', 'string')
-
-    return profile.shadow == password_digest(password, profile.salt)
 end
 
 local function init_space()
@@ -100,7 +61,7 @@ local function profile_add(profile)
         return {ok = false, error = err_storage:new("Profile already exist")}
     end
 
-    local password_data = create_password(profile.password)
+    local password_data = auth.create_password(profile.password)
 
     profile.shadow = password_data.shadow
     profile.salt = password_data.salt
@@ -109,6 +70,15 @@ local function profile_add(profile)
 
     return {ok = true, error = nil}
 end
+
+local function complete_table(major, minor)
+    for k, v in pairs(major) do
+        if minor[k] == nil then
+            minor[k] = v
+        end
+    end
+end
+
 
 local function profile_update(id, password, changes)
     checks('number', 'string', 'table')
@@ -120,13 +90,13 @@ local function profile_update(id, password, changes)
     end
 
     exists = tuple_to_map(box.space.profile:format(), exists)
-    if not check_password(exists, password) then
+    if not auth.check_password(exists, password) then
         return {profile = nil, error = err_storage:new("Unauthorized")}
     end
 
     complete_table(exists, changes)
     if changes.password ~= nil then
-        local password_data = create_password(changes.password)
+        local password_data = auth.create_password(changes.password)
         changes.shadow = password_data.shadow
         changes.salt = password_data.salt
         changes.password = nil
@@ -148,7 +118,7 @@ local function profile_get(id, password)
     end
 
     profile = tuple_to_map(box.space.profile:format(), profile)
-    if not check_password(profile, password) then
+    if not auth.check_password(profile, password) then
         return {profile = nil, error = err_storage:new("Unauthorized")}
     end
     
@@ -166,7 +136,7 @@ local function profile_delete(id, password)
         return {ok = false, error = err_storage:new("Profile not found")}
     end
     exists = tuple_to_map(box.space.profile:format(), exists)
-    if not check_password(exists, password) then
+    if not auth.check_password(exists, password) then
         return {ok = false, error = err_storage:new("Unauthorized")}
     end
 
@@ -205,8 +175,6 @@ return {
         profile_update = profile_update,
         profile_get = profile_get,
         profile_delete = profile_delete,
-        create_password = create_password,
-        password_digest = password_digest,
     },
     dependencies = {
         'cartridge.roles.vshard-storage'
