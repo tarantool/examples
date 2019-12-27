@@ -785,8 +785,6 @@ local helper = require('test.helper.integration')
 local cluster = helper.cluster
 local deepcopy = require('table').deepcopy
 
-local mysql = require('mysql')
-
 local test_profile = {
     profile_id = 1, 
     first_name = 'Petr',
