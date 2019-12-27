@@ -1,7 +1,7 @@
+-- Модуль проверки аргументов в функции
 local checks = require('checks')
+-- Модуль с криптографическими функциями
 local digest = require('digest')
-local fiber = require('fiber')
-
 
 local SALT_LENGTH = 16
 

@@ -3,7 +3,7 @@ local g = t.group('integration_api')
 
 local helper = require('test.helper.integration')
 local cluster = helper.cluster
-local deepcopy = helper.shared.deepcopy
+local deepcopy = require('table').deepcopy
 
 local mysql = require('mysql')
 
@@ -75,15 +75,4 @@ end
 
 g.test_on_delete_ok = function()
     helper.assert_http_json_request('delete', '/profile/1', {password = user_password}, {body = {info = "Deleted"}, status = 200})
-end
-
-g.before_all = function ()
-    local connection = mysql.connect({
-        host='127.0.0.1', 
-        user='root', 
-        password='password', 
-        db='profile_storage',
-    })
-    connection:execute('DELETE FROM user_profile')
-    connection:close()
 end

@@ -1,7 +1,6 @@
 local vshard = require('vshard')
 local cartridge = require('cartridge')
 local errors = require('errors')
-
 local log = require('log')
 
 local err_vshard_router = errors.new_class("Vshard routing error")

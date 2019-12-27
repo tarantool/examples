@@ -1,20 +1,27 @@
 -- модуль проверки аргументов в функциях
 local checks = require('checks')
-
 local errors = require('errors')
-
--- модуль с функциями создания и проверки пароля
-local auth = require('app.auth')
-
 -- класс ошибок дуступа к хранилищу профилей
 local err_storage = errors.new_class("Storage error")
+-- написанный нами модуль с функциями создания и проверки пароля
+local auth = require('app.auth')
 
-local function tuple_to_map(format, tuple)
+-- Функция преобразующая кортеж в таблицу согласно схеме хранения
+local function tuple_to_table(format, tuple)
     local map = {}
-    for _, i in ipairs(format) do
-        map[i.name] = tuple[i.name]
+    for i, v in ipairs(format) do
+        map[v.name] = tuple[i]
     end
     return map
+end
+
+-- Функция заполняющая недостающие поля таблицы minor из таблицы major
+local function complete_table(major, minor)
+    for k, v in pairs(major) do
+        if minor[k] == nil then
+            minor[k] = v
+        end
+    end
 end
 
 local function init_space()
@@ -71,15 +78,6 @@ local function profile_add(profile)
     return {ok = true, error = nil}
 end
 
-local function complete_table(major, minor)
-    for k, v in pairs(major) do
-        if minor[k] == nil then
-            minor[k] = v
-        end
-    end
-end
-
-
 local function profile_update(id, password, changes)
     checks('number', 'string', 'table')
     
@@ -89,7 +87,7 @@ local function profile_update(id, password, changes)
         return {profile = nil, error = err_storage:new("Profile not found")}
     end
 
-    exists = tuple_to_map(box.space.profile:format(), exists)
+    exists = tuple_to_table(box.space.profile:format(), exists)
     if not auth.check_password(exists, password) then
         return {profile = nil, error = err_storage:new("Unauthorized")}
     end
@@ -117,7 +115,7 @@ local function profile_get(id, password)
         return {profile = nil, error = err_storage:new("Profile not found")}
     end
 
-    profile = tuple_to_map(box.space.profile:format(), profile)
+    profile = tuple_to_table(box.space.profile:format(), profile)
     if not auth.check_password(profile, password) then
         return {profile = nil, error = err_storage:new("Unauthorized")}
     end
@@ -135,7 +133,7 @@ local function profile_delete(id, password)
     if exists == nil then
         return {ok = false, error = err_storage:new("Profile not found")}
     end
-    exists = tuple_to_map(box.space.profile:format(), exists)
+    exists = tuple_to_table(box.space.profile:format(), exists)
     if not auth.check_password(exists, password) then
         return {ok = false, error = err_storage:new("Unauthorized")}
     end
