@@ -12,9 +12,14 @@
    4. Удаление профиля DELETE /profile/id
 
 ## Подготовка
+Для работы нам понадобится cartridge-cli 1.3.0. Установить ее можно командой 
+```bash
+you@yourmachine $ tarantoolctl rocks install cartridge-cli 1.3.0
+```
+
 Создадим новый проект
 ```bash
-you@yourmachine $ cartridge create --name profiles-storage .
+you@yourmachine $ .rocks/bin/cartridge create --name profiles-storage .
 ```
 
 ## Модуль авторизации
@@ -84,6 +89,43 @@ return {
 ```
 
 ## Реализация бизнес-логики
+
+### Немного о ролях
+
+Роль &mdash; это часть нашего приложения, логически обособленная от других частей.
+
+Чтобы реализовать роль, которая будет работать на кластере, то -- помимо описания
+бизнес-логики этой роли -- нам необходимо написать несколько функций обратного
+вызова, через которые кластер и будет управлять жизненным циклом нашей роли.
+
+Список этих функций невелик, и почти все из них уже реализованы заглушками при
+генерации проекта из шаблона. Вот, что мы найдем в `app/roles/custom.lua`:
+
+* `init(opts)` &mdash; создание роли и ее инициализация.
+* `stop()` &mdash; завершение работы роли;
+* `validate_config(conf_new, conf_old)` &mdash; функция валидирования новой
+  конфигурации нашей роли;
+* `apply_config(conf, opts)` &mdash; применение новой конфигурации.
+
+Сам файл роли &mdash; это просто Lua-модуль, в конце которого
+должен быть реализован экспорт необходимых функций и переменных:
+
+```lua
+return {
+    role_name = 'custom_role',
+    init = init,
+    stop = stop,
+    validate_config = validate_config,
+    apply_config = apply_config,
+    dependencies = {},
+}
+```
+
+Разобьем наше приложение на 2 роли:
+
+1. Роль `storage` реализовывает хранение и изменение информации о пользователях
+   и счетах.
+1. Роль `api` реализовывает RESTful http-сервер.
 
 ### Роль storage
 
@@ -544,25 +586,6 @@ local ok, err = cartridge.cfg({
     cluster_cookie = 'profiles-storage-cluster-cookie',
 })
 ```
-Также мы в наших ролях использовали некоторые внешние модули. Их необходимо добавить в список зависимостей в файл `profiles-storage-scm-1.rockspec`.
-
-```conf
-package = 'profiles-storage'
-version = 'scm-1'
-source  = {
-    url = '/dev/null',
-}
--- Put any modules your app depends on here
-dependencies = {
-    'tarantool',
-    'lua >= 5.1',
-    'luatest == 0.3.0-1',
-    'cartridge == 1.2.0-1',
-}
-build = {
-    type = 'none';
-}
-```
 
 ## Тестирование
 
@@ -862,10 +885,8 @@ end
 Можем запускать кластер!
 ```bash
 profiles-storage $ tarantoolctl rocks make
-profiles-storage $ cartridge start
+profiles-storage $ .rocks/bin/cartridge start
 ```
-
->> При запуске возможна ошибка прав доступа, для ее исправления выполните команду `chmod u+x init.lua` в терминале
 
 Откроем в браузере веб-интерфейс и сделаем следующее:
 1. Создадим в одном экземпляре роль `api`  
@@ -876,9 +897,7 @@ profiles-storage $ cartridge start
 Должны создаться 2 репликасета по одному экземпляру Tarantool в каждом. 
 ![](report_images/two-replicasets.png)
 
-Теперь у нас есть 2 репликасета с двумя ролями, но vshard еще не запущен. Нажмем кнопку Bootstrap vshard на закладке Cluster в веб-интерфейсе.
-
-Запустим кластер, нажав кнопку **Bootstrap vshard** в правом верхнем углу веб-интерфейса.
+Теперь у нас есть 2 репликасета с двумя ролями, но vshard еще не запущен. Нажмем кнопку **Bootstrap vshard** на закладке Cluster в веб-интерфейсе.
 
 ## Проверим работу
 
