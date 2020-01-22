@@ -2,6 +2,35 @@ local checks = require('checks')
 local lru = require('lru')
 local log = require('log')
 
+local lru_cache = nil
+
+-- ========================================================================= --
+-- update section
+-- ========================================================================= --
+local cache_size = 2
+
+local function update_cache(login) --remove least recently used tuples from cache
+    checks('string')
+
+    local result, err = lru_cache:touch(login)
+
+    if err ~= nil then
+        return nil, err
+    end
+
+    if result == true then 
+        return true
+    end
+    log.info(string.format("Removing \'%s\' from cache", result))
+    box.space.account:delete(result)
+
+    return true
+end
+
+-- ========================================================================= --
+-- supporting functions
+-- ========================================================================= --
+
 local function verify_field(field)
     checks('string')
     
@@ -28,6 +57,10 @@ local function tuple_to_map(account)
 
     return res
 end
+
+-- ========================================================================= --
+-- storage functions
+-- ========================================================================= --
 
 local function init_spaces()
     local account = box.schema.space.create(
@@ -58,6 +91,10 @@ local function init_spaces()
         if_not_exists = true,
     })
 
+    lru_cache = lru.new(cache_size) --least recently used cache
+    for k, account in box.space.account:pairs() do --recover lru cache 
+        update_cache(account[1])
+    end
 end
 
 local function account_add(account)
@@ -76,6 +113,8 @@ local function account_add(account)
         os.time(),
         account.data
     })
+
+    update_cache(account.login)
 
     return true
 end
@@ -97,6 +136,8 @@ local function account_update(login, field, value)
 
     box.space.account:replace(box.space.account:frommap(account))
 
+    update_cache(account.login)
+
     return true
 end
 
@@ -117,6 +158,8 @@ local function account_get(login, field)
 
     box.space.account:replace(box.space.account:frommap(account))
 
+    update_cache(account.login)
+
     return account[field]
 end
 
@@ -128,6 +171,7 @@ local function account_delete(login)
         return nil
     end
 
+    lru_cache:delete(login)
     local account = box.space.account:delete(login)
 
     return true
