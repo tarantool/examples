@@ -13,9 +13,9 @@
  * Добавить проверку пароля для пользователей, чтобы только сам пользователь мог выполнять операции над своим профилем
 
 ## Подготовка
-Для работы нам понадобится cartridge-cli 1.3.0. Установить ее можно командой 
+Для работы нам понадобится cartridge-cli 1.3.1. Установить ее можно командой 
 ```bash
-you@yourmachine $ tarantoolctl rocks install cartridge-cli 1.3.0
+you@yourmachine $ tarantoolctl rocks install cartridge-cli 1.3.1
 ```
 
 Создадим новый проект
