@@ -695,37 +695,50 @@ end
 
 ```lua
 -- cache_mysql.lua
-local function write_behind()
-
+local function write_behind() --update changed tuple in vinyl storage
     local batch = {}
     for login, _ in pairs(write_queue) do
-
-        local account = box.space.account:get(login)
+		local account = box.space.account:get(login)
         if (account ~= nil) then
             table.insert(batch, account)
         end
-
+            
         if (#batch >= batch_size) then
             conn:begin()
-
             update_batch(batch)
-            batch = {}
 
+            for _,  acc in pairs(batch) do
+                write_queue[acc['login']] = nil
+            end
+
+            batch = {}
             conn:commit()
         end
-
     end
 
     if (#batch ~= 0) then
         conn:begin()
-
         update_batch(batch)
-        batch = {}
 
+        for _,  acc in pairs(batch) do
+            write_queue[acc['login']] = nil
+        end
+
+        batch = {}
         conn:commit()
     end
 
-    write_queue = {}
+    local length = 0
+    for acc, status in pairs(write_queue) do
+        length = length + 1
+    end
+
+    if (length == 0) then
+        log.info("All updates are applied")
+    else
+        log.warn(string.format("%d updates failed", length))
+    end
+
     return true
 end
 ```
@@ -883,36 +896,50 @@ account_vinyl:create_index('bucket_id', {
    ```lua
    -- cache_vinyl.lua
    local function write_behind() --update changed tuple in vinyl storage
-
-       local batch = {}
+    local batch = {}
        for login, _ in pairs(write_queue) do
-
-           local account = box.space.account:get(login)
+   
+        local account = box.space.account:get(login)
            if (account ~= nil) then
                table.insert(batch, account)
            end
-
-           if (#batch >= batch_size) then
+               
+        if (#batch >= batch_size) then
                box.begin()
-
                update_batch(batch)
-               batch = {}
 
-               box.commit()
+               for _,  acc in pairs(batch) do
+                   write_queue[acc['login']] = nil
+            end
+   
+               batch = {}          
+            box.commit()
+           end
+    end
+   
+       if (#batch ~= 0) then
+        box.begin()
+           update_batch(batch)
+   
+        for _,  acc in pairs(batch) do
+               write_queue[acc['login']] = nil
            end
 
-       end
-
-       if (#batch ~= 0) then
-           box.begin()
-
-           update_batch(batch)
            batch = {}
-
            box.commit()
        end
-
-       write_queue = {}
+   
+       local length = 0
+       for acc, status in pairs(write_queue) do
+           length = length + 1
+       end
+   
+       if (length == 0) then
+           log.info("All updates are applied")
+       else
+           log.warn(string.format("%d updates failed", length))
+       end
+   
        return true
    end
    ```

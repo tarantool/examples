@@ -68,7 +68,6 @@ local function write_behind() --update changed tuple in vinyl storage
 
     local batch = {}
     for login, _ in pairs(write_queue) do
-
         local account = box.space.account:get(login)
         if (account ~= nil) then
             table.insert(batch, account)
@@ -76,7 +75,6 @@ local function write_behind() --update changed tuple in vinyl storage
             
         if (#batch >= batch_size) then
             conn:begin()
-            
             update_batch(batch)
 
             for _,  acc in pairs(batch) do
@@ -84,15 +82,12 @@ local function write_behind() --update changed tuple in vinyl storage
             end
 
             batch = {}
-            
             conn:commit()
         end
-
     end
 
     if (#batch ~= 0) then
         conn:begin()
-        
         update_batch(batch)
 
         for _,  acc in pairs(batch) do
@@ -100,7 +95,6 @@ local function write_behind() --update changed tuple in vinyl storage
         end
 
         batch = {}
-        
         conn:commit()
     end
 

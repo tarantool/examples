@@ -75,7 +75,6 @@ end
 
 
 local function write_behind() --update changed tuple in vinyl storage
-
     local batch = {}
     for login, _ in pairs(write_queue) do
 
@@ -86,23 +85,19 @@ local function write_behind() --update changed tuple in vinyl storage
             
         if (#batch >= batch_size) then
             box.begin()
-            
             update_batch(batch)
 
             for _,  acc in pairs(batch) do
                 write_queue[acc['login']] = nil
             end
 
-            batch = {}
-            
+            batch = {}          
             box.commit()
         end
-
     end
 
     if (#batch ~= 0) then
         box.begin()
-        
         update_batch(batch)
 
         for _,  acc in pairs(batch) do
@@ -110,7 +105,6 @@ local function write_behind() --update changed tuple in vinyl storage
         end
 
         batch = {}
-        
         box.commit()
     end
 
