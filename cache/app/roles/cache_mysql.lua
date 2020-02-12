@@ -78,6 +78,11 @@ local function write_behind() --update changed tuple in vinyl storage
             conn:begin()
             
             update_batch(batch)
+
+            for _,  acc in pairs(batch) do
+                write_queue[acc['login']] = nil
+            end
+
             batch = {}
             
             conn:commit()
@@ -89,12 +94,27 @@ local function write_behind() --update changed tuple in vinyl storage
         conn:begin()
         
         update_batch(batch)
+
+        for _,  acc in pairs(batch) do
+            write_queue[acc['login']] = nil
+        end
+
         batch = {}
         
         conn:commit()
     end
 
-    write_queue = {}
+    local length = 0
+    for acc, status in pairs(write_queue) do
+        length = length + 1
+    end
+
+    if (length == 0) then
+        log.info("All updates are applied")
+    else
+        log.warn(string.format("%d updates failed", length))
+    end
+
     return true
 end
 
@@ -197,7 +217,7 @@ local function init_spaces()
             },
             if_not_exists = true,
             engine = 'memtx',
-            temporary = true,
+            temporary = false,
         }
     )
 
