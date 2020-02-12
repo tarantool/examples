@@ -1,115 +1,157 @@
 # Хранилище профилей пользователей на Tarantool Cartridge
 
-## Задачи  
- * Cоздать хранилище профилей пользователей на Tarantool Cartridge. Профили содержат следующую информацию:
-    * ФИО
-    * Количество отправленных писем
-    * Сервисная информация(флаги, зашифрованные пароли, соль)
- * Написать приложение для Tarantool Cartridge, предоставляющее API со следующими функциями:
-   1. Добавление профиля по POST /profile
-   2. Обновление данных профиля PUT /profile/id
-   3. Получение данных о профиле GET /profile/id
-   4. Удаление профиля DELETE /profile/id
- * Добавить проверку пароля для пользователей, чтобы только сам пользователь мог выполнять операции над своим профилем
+## Содержание
 
-## Подготовка
-Для работы нам понадобится cartridge-cli 1.3.1. Установить ее можно командой 
+* [Что будем делать](#что-будем-делать)
+* [Настройка окружения](#настройка-окружения)
+* [Модуль авторизации](#модуль-авторизации)
+* [Немного о ролях](#немного-о-ролях)
+* [Роль хранилища (`storage`)](#роль-хранилища-storage)
+* [Роль http-сервера (`api`)](#роль-http-сервера-api)
+* [Добавление зависимостей](#добавление-зависимостей)
+* [Тестирование](#тестирование)
+* [Запуск приложения](#запуск-приложения)
+* [Проверка работоспособности](#проверка-работоспособности)
+
+## Что будем делать
+
+В этом примере мы создадим хранилище профилей пользователей с поддержкой команд
+POST, PUT, GET, DELETE для добавления, изменения, чтения и удаления профиля.
+
+Мы также добавим проверку пароля для пользователей, чтобы только сам пользователь
+мог выполнять операции над своим профилем.
+
+Для разработки будем пользоваться фреймворком Tarantool Cartridge.
+
+## Настройка окружения
+
+Для работы с Tarantool Cartridge необходимо установить `cartridge-cli`
+(версию 1.3.1):
+
 ```bash
-you@yourmachine $ tarantoolctl rocks install cartridge-cli 1.3.1
+tarantoolctl rocks install cartridge-cli 1.3.1
 ```
 
-Создадим новый проект
+Исполняемый файл будет сохранен в `.rocks/bin/cartridge`.
+Подробнее про установку `cartridge-cli` можно прочитать
+[здесь](https://github.com/tarantool/cartridge-cli#installation).
+
+Теперь создадим наше приложение. Назовем его `profiles-storage`:
+
 ```bash
 you@yourmachine $ .rocks/bin/cartridge create --name profiles-storage .
 ```
 
 ## Модуль авторизации
-Для безопасного хранения паролей в зашифрованном виде реализуем модуль `auth` с функциями создания и проверки паролей.
 
-Расположим модуль в папке `app`
+Для безопасного хранения паролей в зашифрованном виде реализуем модуль `auth`
+с функциями создания и проверки паролей.
+
+Расположим этот модуль в директории `app`:
+
 ```bash
 profiles-storage $ touch app/auth.lua
 ```
 
-1. Подключим необходимые модули
-```lua
--- Модуль проверки аргументов в функции
-local checks = require('checks')
--- Модуль с криптографическими функциями
-local digest = require('digest')
-```
-2. Функция генерации соли
-```lua
-local SALT_LENGTH = 16
+Далее:
 
-local function generate_salt(length)
-    return digest.base64_encode(
-        digest.urandom(length - bit.rshift(length, 2)),
-        {nopad=true, nowrap=true}
-    ):sub(1, length)
-end
-```
+1. Подключим необходимые модули:
 
-3. Функция шифрования пароля с помощью соли
-```lua
-local function password_digest(password, salt)
-    checks('string', 'string')
-    return digest.pbkdf2(password, salt)
-end
-```
+   ```lua
+   -- Модуль проверки аргументов в функции
+   local checks = require('checks')
+   -- Модуль с криптографическими функциями
+   local digest = require('digest')
+   ```
 
-4. Функция создания пароля
-```lua
-local function create_password(password)
-    checks('string')
+2. Реализуем несколько функций. Функция генерации соли:
 
-    local salt = generate_salt(SALT_LENGTH)
+   ```lua
+   local SALT_LENGTH = 16
 
-    local shadow = password_digest(password, salt)
+   local function generate_salt(length)
+       return digest.base64_encode(
+           digest.urandom(length - bit.rshift(length, 2)),
+           {nopad=true, nowrap=true}
+       ):sub(1, length)
+   end
+   ```
 
-    return {
-        shadow = shadow,
-        salt = salt,
-    }
-end
-```
+3. Функция шифрования пароля с помощью соли:
 
-5. Функция проверки пароля
-```lua
-local function check_password(profile, password)
-    return profile.shadow == password_digest(password, profile.salt)
-end
-```
+   ```lua
+   local function password_digest(password, salt)
+       checks('string', 'string')
+       return digest.pbkdf2(password, salt)
+   end
+   ```
 
-6. Экспортируем нужные фукнции
-```lua
-return {
-    create_password = create_password,
-    check_password = check_password
-}
-```
+4. Функция создания пароля:
 
-## Реализация бизнес-логики
+   ```lua
+   local function create_password(password)
+       checks('string')
 
-### Немного о ролях
+       local salt = generate_salt(SALT_LENGTH)
 
-Роль &mdash; это часть нашего приложения, логически обособленная от других частей.
+       local shadow = password_digest(password, salt)
 
-Чтобы реализовать роль, которая будет работать на кластере, то -- помимо описания
-бизнес-логики этой роли -- нам необходимо написать несколько функций обратного
-вызова, через которые кластер и будет управлять жизненным циклом нашей роли.
+       return {
+           shadow = shadow,
+           salt = salt,
+       }
+   end
+   ```
+
+5. Функция проверки пароля:
+
+   ```lua
+   local function check_password(profile, password)
+       return profile.shadow == password_digest(password, profile.salt)
+   end
+   ```
+
+6. Экспортируем нужные функции:
+
+   ```lua
+   return {
+       create_password = create_password,
+       check_password = check_password
+   }
+   ```
+
+## Немного о ролях
+
+Наше приложение-хранилище должно обрабатывать запросы на создание и удаление
+профилей, чтение и обновление информации.
+
+Разобьем наше приложение на 2 роли:
+
+1. Роль `storage` реализует хранение и изменение информации о пользователях
+   и счетах.
+2. Роль `api` реализует RESTful http-сервер.
+
+Кластерная роль – это Lua-модуль, который реализует некоторую функцию и логику.
+С помощью Tarantool Cartridge мы можем назначать роли на инстансы Tarantool
+в кластере. Подробнее об этом можно прочитать
+(тут)[https://www.tarantool.io/ru/doc/2.2/book/cartridge/cartridge_dev/#cluster-roles].
+
+Чтобы реализовать роль, которая будет работать на кластере, то &mdash; помимо
+описания бизнес-логики этой роли &mdash; нам необходимо написать несколько функций
+обратного вызова, через которые кластер и будет управлять жизненным циклом нашей
+роли.
 
 Список этих функций невелик, и почти все из них уже реализованы заглушками при
-генерации проекта из шаблона. Вот, что мы найдем в `app/roles/custom.lua`:
+создании проекта из шаблона. Вот что мы найдем в `app/roles/custom.lua`:
 
-* `init(opts)` &mdash; создание роли и ее инициализация.
+* `init(opts)` &mdash; создание роли и ее инициализация;
 * `stop()` &mdash; завершение работы роли;
 * `validate_config(conf_new, conf_old)` &mdash; функция валидирования новой
   конфигурации нашей роли;
 * `apply_config(conf, opts)` &mdash; применение новой конфигурации.
 
-Сам файл роли &mdash; это просто Lua-модуль, в конце которого
-должен быть реализован экспорт необходимых функций и переменных:
+Как мы уже говорили, сам файл роли &mdash; это просто Lua-модуль,
+но в конце него должен быть реализован экспорт необходимых функций и переменных:
 
 ```lua
 return {
@@ -122,34 +164,34 @@ return {
 }
 ```
 
-Разобьем наше приложение на 2 роли:
+## Роль хранилища (`storage`)
 
-1. Роль `storage` реализовывает хранение и изменение информации о пользователях
-   и счетах.
-1. Роль `api` реализовывает RESTful http-сервер.
+Первым делом создадим роль, которая инициализирует хранилище и реализует функции
+доступа к данным.
 
-### Роль storage
+Все роли нашего приложения лежат в директории `app/roles`. Для нашей роли
+создадим здесь файл `storage.lua`.
 
-Реализуем роль, которая инициализирует хранилище и реализует функции доступа к данным.
-
-Создадим новый файл, где и реализуем эту роль
 ```bash
 profiles-storage $ touch app/roles/storage.lua
 ```
 
-1. Подключим необходимые модули:
+Для корректной работы подключим необходимые модули:
+
 ```lua
 -- модуль проверки аргументов в функциях
 local checks = require('checks')
 local errors = require('errors')
--- класс ошибок дуступа к хранилищу профилей
+-- класс ошибок доступа к хранилищу профилей
 local err_storage = errors.new_class("Storage error")
--- написанный нами модуль с функциями создания и проверки пароля
+-- написанный нами ранее модуль с функциями создания и проверки пароля
 local auth = require('app.auth')
 ```
-2. Вспомогательные функции
+
+Идем дальше. Добавим вспомогательные функции:
+
 ```lua
--- Функция преобразующая кортеж в таблицу согласно схеме хранения
+-- Функция, преобразующая кортеж в таблицу согласно схеме хранения
 local function tuple_to_table(format, tuple)
     local map = {}
     for i, v in ipairs(format) do
@@ -158,7 +200,7 @@ local function tuple_to_table(format, tuple)
     return map
 end
 
--- Функция заполняющая недостающие поля таблицы minor из таблицы major
+-- Функция, заполняющая недостающие поля таблицы minor из таблицы major
 local function complete_table(major, minor)
     for k, v in pairs(major) do
         if minor[k] == nil then
@@ -168,11 +210,18 @@ local function complete_table(major, minor)
 end
 ```
 
-2. Инициализацию необходимого пространства в хранилище
+Профили в нашем хранилище будут содержать следующую информацию:
+
+* ФИО
+* количество отправленных писем
+* сервисную информацию (флаги, зашифрованные пароли, соль)
+
+Зная формат данных, добавим инициализацию необходимого пространства в хранилище:
+
 ```lua
 local function init_space()
     local profile = box.schema.space.create(
-        'profile', -- имя спейса для хранения профилей 
+        'profile', -- имя спейса для хранения профилей
         {
             -- формат хранимых кортежей
             format = {
@@ -206,128 +255,142 @@ local function init_space()
 end
 ```
 
-3. Функция добавления нового профиля
-```lua
-local function profile_add(profile)
-    checks('table')
+Итак, наша основная логика:
 
-    -- Проверяем существование пользователя с таким id
-    local exist = box.space.profile:get(profile.profile_id)
-    if exist ~= nil then
-        return {ok = false, error = err_storage:new("Profile already exist")}
-    end
+1. Функция добавления нового профиля:
 
-    local password_data = auth.create_password(profile.password)
+   ```lua
+   local function profile_add(profile)
+       checks('table')
 
-    profile.shadow = password_data.shadow
-    profile.salt = password_data.salt
-    profile.password = nil
-    box.space.profile:insert(box.space.profile:frommap(profile))
+       -- Проверяем существование пользователя с таким id
+       local exist = box.space.profile:get(profile.profile_id)
+       if exist ~= nil then
+           return {ok = false, error = err_storage:new("Profile already exist")}
+       end
 
-    return {ok = true, error = nil}
-end
-```
+       local password_data = auth.create_password(profile.password)
 
-4. Функция обновления профиля
-```lua
-local function profile_update(id, password, changes)
-    checks('number', 'string', 'table')
-    
-    local exists = box.space.profile:get(id)
+       profile.shadow = password_data.shadow
+       profile.salt = password_data.salt
+       profile.password = nil
+       box.space.profile:insert(box.space.profile:frommap(profile))
 
-    if exists == nil then
-        return {profile = nil, error = err_storage:new("Profile not found")}
-    end
+       return {ok = true, error = nil}
+   end
+   ```
 
-    exists = tuple_to_table(box.space.profile:format(), exists)
-    if not auth.check_password(exists, password) then
-        return {profile = nil, error = err_storage:new("Unauthorized")}
-    end
+2. Функция обновления профиля:
 
-    complete_table(exists, changes)
-    if changes.password ~= nil then
-        local password_data = auth.create_password(changes.password)
-        changes.shadow = password_data.shadow
-        changes.salt = password_data.salt
-        changes.password = nil
-    end
-    box.space.profile:replace(box.space.profile:frommap(changes))
+   ```lua
+   local function profile_update(id, password, changes)
+       checks('number', 'string', 'table')
 
-    changes.bucket_id = nil
-    changes.salt = nil
-    changes.shadow = nil
-    return {profile = changes, error = nil}
-end
-```
+       local exists = box.space.profile:get(id)
 
-5. Функция получения информации о профиле
-```lua
-local function profile_get(id, password)
-    checks('number', 'string')
-    
-    local profile = box.space.profile:get(id)
-    if profile == nil then
-        return {profile = nil, error = err_storage:new("Profile not found")}
-    end
+       if exists == nil then
+           return {profile = nil, error = err_storage:new("Profile not found")}
+       end
 
-    profile = tuple_to_table(box.space.profile:format(), profile)
-    if not auth.check_password(profile, password) then
-        return {profile = nil, error = err_storage:new("Unauthorized")}
-    end
-    
-    profile.bucket_id = nil
-    profile.shadow = nil
-    profile.salt = nil
-    return {profile = profile, error = nil}
-end
-```
+       exists = tuple_to_table(box.space.profile:format(), exists)
+       if not auth.check_password(exists, password) then
+           return {profile = nil, error = err_storage:new("Unauthorized")}
+       end
 
-6. Функция удаления профиля
-```lua
-local function profile_delete(id, password)
-    checks('number', 'string')
-    
-    local exists = box.space.profile:get(id)
-    if exists == nil then
-        return {ok = false, error = err_storage:new("Profile not found")}
-    end
-    exists = tuple_to_table(box.space.profile:format(), exists)
-    if not auth.check_password(exists, password) then
-        return {ok = false, error = err_storage:new("Unauthorized")}
-    end
+       complete_table(exists, changes)
+       if changes.password ~= nil then
+           local password_data = auth.create_password(changes.password)
+           changes.shadow = password_data.shadow
+           changes.salt = password_data.salt
+           changes.password = nil
+       end
+       box.space.profile:replace(box.space.profile:frommap(changes))
 
-    box.space.profile:delete(id)
-    return {ok = true, error = nil}
-end
-```
+       changes.bucket_id = nil
+       changes.salt = nil
+       changes.shadow = nil
+       return {profile = changes, error = nil}
+   end
+   ```
 
-7. Функция инициализации роли
-```lua
-local function init(opts)
-    if opts.is_master then
-        init_space()
+3. Функция получения информации о профиле:
 
-        box.schema.func.create('profile_add', {if_not_exists = true})
-        box.schema.func.create('profile_get', {if_not_exists = true})
-        box.schema.func.create('profile_update', {if_not_exists = true})
-        box.schema.func.create('profile_delete', {if_not_exists = true})
+   ```lua
+   local function profile_get(id, password)
+       checks('number', 'string')
 
-        box.schema.role.grant('public', 'execute', 'function', 'profile_add', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'profile_get', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'profile_update', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'profile_delete', {if_not_exists = true})
-    end
+       local profile = box.space.profile:get(id)
+       if profile == nil then
+           return {profile = nil, error = err_storage:new("Profile not found")}
+       end
 
-    rawset(_G, 'profile_add', profile_add)
-    rawset(_G, 'profile_get', profile_get)
-    rawset(_G, 'profile_update', profile_update)
-    rawset(_G, 'profile_delete', profile_delete)
+       profile = tuple_to_table(box.space.profile:format(), profile)
+       if not auth.check_password(profile, password) then
+           return {profile = nil, error = err_storage:new("Unauthorized")}
+       end
 
-    return true
-end
-```
+       profile.bucket_id = nil
+       profile.shadow = nil
+       profile.salt = nil
+       return {profile = profile, error = nil}
+   end
+   ```
 
-8. Экспортируем функции роли и зависимости из модуля
+4. Функция удаления профиля:
+
+   ```lua
+   local function profile_delete(id, password)
+       checks('number', 'string')
+
+       local exists = box.space.profile:get(id)
+       if exists == nil then
+           return {ok = false, error = err_storage:new("Profile not found")}
+       end
+       exists = tuple_to_table(box.space.profile:format(), exists)
+       if not auth.check_password(exists, password) then
+           return {ok = false, error = err_storage:new("Unauthorized")}
+       end
+
+       box.space.profile:delete(id)
+       return {ok = true, error = nil}
+   end
+   ```
+
+5. Функция инициализации роли:
+
+   ```lua
+   local function init(opts)
+       if opts.is_master then
+           init_space()
+
+           box.schema.func.create('profile_add', {if_not_exists = true})
+           box.schema.func.create('profile_get', {if_not_exists = true})
+           box.schema.func.create('profile_update', {if_not_exists = true})
+           box.schema.func.create('profile_delete', {if_not_exists = true})
+
+           box.schema.role.grant('public', 'execute', 'function', 'profile_add', {if_not_exists = true})
+           box.schema.role.grant('public', 'execute', 'function', 'profile_get', {if_not_exists = true})
+           box.schema.role.grant('public', 'execute', 'function', 'profile_update', {if_not_exists = true})
+           box.schema.role.grant('public', 'execute', 'function', 'profile_delete', {if_not_exists = true})
+       end
+
+       rawset(_G, 'profile_add', profile_add)
+       rawset(_G, 'profile_get', profile_get)
+       rawset(_G, 'profile_update', profile_update)
+       rawset(_G, 'profile_delete', profile_delete)
+
+       return true
+   end
+   ```
+
+  **Примечание:** В этом коде мы используем Lua-функцию
+  [rawset()](https://www.lua.org/manual/5.1/manual.html#pdf-rawset), чтобы
+  задать значение полей в системном спейсе `_G`, который находится в
+  области глобальных переменных, без вызова мета-методов.
+
+А в конце нам необходимо экспортировать функции роли и зависимости из нашего
+модуля:
+
 ```lua
 return {
     role_name = 'storage',
@@ -346,222 +409,240 @@ return {
 
 Первая роль готова!
 
-### Роль api
+## Роль http-сервера (`api`)
 
-1. Подключим необходимые модули
+Сперва подключим все необходимые модули:
+
 ```lua
 --app/roles/api.lua
 local vshard = require('vshard')
 local cartridge = require('cartridge')
 local errors = require('errors')
 local log = require('log')```
+```
 
-2. Создадим классы ошибок
+Далее создадим классы ошибок:
+
 ```lua
 local err_vshard_router = errors.new_class("Vshard routing error")
 local err_httpd = errors.new_class("httpd error")
 ```
 
-3. Функции генерации ответа на http - запрос
-```lua
-local function json_response(req, json, status) 
-    local resp = req:render({json = json})
-    resp.status = status
-    return resp
-end
+Теперь реализуем основную логику:
 
-local function internal_error_response(req, error)
-    local resp = json_response(req, {
-        info = "Internal error",
-        error = error
-    }, 500)
-    return resp
-end
+1. Функции генерации ответа на http-запрос:
 
-local function profile_not_found_response(req)
-    local resp = json_response(req, {
-        info = "Profile not found"
-    }, 404)
-    return resp
-end
+   ```lua
+   local function json_response(req, json, status)
+       local resp = req:render({json = json})
+       resp.status = status
+       return resp
+   end
 
-local function profile_conflict_response(req)
-    local resp = json_response(req, {
-        info = "Profile already exist"
-    }, 409)
-    return resp
-end
+   local function internal_error_response(req, error)
+       local resp = json_response(req, {
+           info = "Internal error",
+           error = error
+       }, 500)
+       return resp
+   end
 
-local function profile_unauthorized(req)
-    local resp = json_response(req, {
-        info = "Unauthorized"
-    }, 401)
-    return resp
-end
+   local function profile_not_found_response(req)
+       local resp = json_response(req, {
+           info = "Profile not found"
+       }, 404)
+       return resp
+   end
 
-local function storage_error_response(req, error)
-    if error.err == "Profile already exist" then
-        return profile_conflict_response(req)
-    elseif error.err == "Profile not found" then
-        return profile_not_found_response(req)
-    elseif error.err == "Unauthorized" then
-        return profile_unauthorized(req)
-    else
-        return internal_error_response(req, error)
-    end
-end
-```
+   local function profile_conflict_response(req)
+       local resp = json_response(req, {
+           info = "Profile already exist"
+       }, 409)
+       return resp
+   end
 
-3. Обработчик http-запроса на добавление профиля
-```lua
-local function http_profile_add(req)
-    local profile = req:json()
+   local function profile_unauthorized(req)
+       local resp = json_response(req, {
+           info = "Unauthorized"
+       }, 401)
+       return resp
+   end
 
-    local bucket_id = vshard.router.bucket_id(profile.profile_id)
-    profile.bucket_id = bucket_id
+   local function storage_error_response(req, error)
+       if error.err == "Profile already exist" then
+           return profile_conflict_response(req)
+       elseif error.err == "Profile not found" then
+           return profile_not_found_response(req)
+       elseif error.err == "Unauthorized" then
+           return profile_unauthorized(req)
+       else
+           return internal_error_response(req, error)
+       end
+   end
+   ```
 
-    local resp, error = err_vshard_router:pcall(
-        vshard.router.call,
-        bucket_id,
-        'write',
-        'profile_add',
-        {profile}
-    )
+2. Обработчик http-запроса на добавление профиля:
 
-    if error then
-        return internal_error_response(req, error)
-    end
-    if resp.error then
-        return storage_error_response(req, resp.error)
-    end
-    
-    return json_response(req, {info = "Successfully created"}, 201)
-end
-```
+   ```lua
+   local function http_profile_add(req)
+       local profile = req:json()
 
-4. Обработчик http-запроса на изменение профиля
-```lua
-local function http_profile_update(req)
-    local profile_id = tonumber(req:stash('profile_id'))
-    local data = req:json()
-    local changes = data.changes
-    local password = data.password
+       local bucket_id = vshard.router.bucket_id(profile.profile_id)
+       profile.bucket_id = bucket_id
 
-    local bucket_id = vshard.router.bucket_id(profile_id)
-    
-    local resp, error = err_vshard_router:pcall(
-        vshard.router.call,
-        bucket_id,
-        'read',
-        'profile_update',
-        {profile_id, password, changes}
-    )
+       local resp, error = err_vshard_router:pcall(
+           vshard.router.call,
+           bucket_id,
+           'write',
+           'profile_add',
+           {profile}
+       )
 
-    if error then
-        return internal_error_response(req,error)
-    end
-    if resp.error then
-        return storage_error_response(req, resp.error)
-    end
-    
-    return json_response(req, resp.profile, 200)
-end
-```
+       if error then
+           return internal_error_response(req, error)
+       end
+       if resp.error then
+           return storage_error_response(req, resp.error)
+       end
 
-5. Обработчик http-запроса на получение профиля
-```lua
-local function http_profile_get(req)
-    local profile_id = tonumber(req:stash('profile_id'))
-    local password = req:json().password
-    local bucket_id = vshard.router.bucket_id(profile_id)
+       return json_response(req, {info = "Successfully created"}, 201)
+   end
+   ```
 
-    local resp, error = err_vshard_router:pcall(
-        vshard.router.call,
-        bucket_id,
-        'read',
-        'profile_get',
-        {profile_id, password}
-    )
+     **Примечание:** В коде выше мы использовали Lua-функцию
+     [pcall()](https://www.lua.org/manual/5.1/manual.html#pdf-pcall),
+     чтобы вызвать функцию `err_vshard_router()` в защищенном режиме: `pcall()`
+     ловит исключения, бросаемые функцией `err_vshard_router()`, и возвращает
+     статус-код, не позволяя ошибкам пробрасываться наружу.
 
-    if error then
-        return internal_error_response(req, error)
-    end
-    if resp.error then
-        return storage_error_response(req, resp.error)
-    end
+3. Обработчик http-запроса на изменение профиля:
 
-    return json_response(req, resp.profile, 200)
-end
-```
+   ```lua
+   local function http_profile_update(req)
+       local profile_id = tonumber(req:stash('profile_id'))
+       local data = req:json()
+       local changes = data.changes
+       local password = data.password
 
-6. Обработчик http-запроса на удаление профиля
-```lua
-local function http_profile_delete(req)
-    local profile_id = tonumber(req:stash('profile_id'))
-    local password = req:json().password
-    local bucket_id = vshard.router.bucket_id(profile_id)
+       local bucket_id = vshard.router.bucket_id(profile_id)
 
-    local resp, error = err_vshard_router:pcall(
-        vshard.router.call,
-        bucket_id,
-        'write',
-        'profile_delete',
-        {profile_id, password}
-    )
+       local resp, error = err_vshard_router:pcall(
+           vshard.router.call,
+           bucket_id,
+           'read',
+           'profile_update',
+           {profile_id, password, changes}
+       )
 
-    if error then
-        return internal_error_response(req, error)
-    end
-    if resp.error then
-        return storage_error_response(req, resp.error)
-    end
+       if error then
+           return internal_error_response(req,error)
+       end
+       if resp.error then
+           return storage_error_response(req, resp.error)
+       end
 
-    return json_response(req, {info = "Deleted"}, 200)
-end
-```
+       return json_response(req, resp.profile, 200)
+   end
+   ```
 
-7. Инициализация роли
-```lua
-local function init(opts)
-    rawset(_G, 'vshard', vshard)
+4. Обработчик http-запроса на получение профиля:
 
-    if opts.is_master then
-        box.schema.user.grant('guest',
-            'read,write',
-            'universe',
-            nil, { if_not_exists = true }
-        )
-    end
+   ```lua
+   local function http_profile_get(req)
+       local profile_id = tonumber(req:stash('profile_id'))
+       local password = req:json().password
+       local bucket_id = vshard.router.bucket_id(profile_id)
 
-    local httpd = cartridge.service_get('httpd')
+       local resp, error = err_vshard_router:pcall(
+           vshard.router.call,
+           bucket_id,
+           'read',
+           'profile_get',
+           {profile_id, password}
+       )
 
-    if not httpd then
-        return nil, err_httpd:new("not found")
-    end
+       if error then
+           return internal_error_response(req, error)
+       end
+       if resp.error then
+           return storage_error_response(req, resp.error)
+       end
 
-    -- Навешиваем функции-обработчики
-    httpd:route(
-        { path = '/profile', method = 'POST', public = true },
-        http_profile_add
-    )
-    httpd:route(
-        { path = '/profile/:profile_id', method = 'GET', public = true },
-        http_profile_get
-    )
-    httpd:route(
-        { path = '/profile/:profile_id', method = 'PUT', public = true },
-        http_profile_update
-    )
-    httpd:route(
-        {path = '/profile/:profile_id', method = 'DELETE', public = true},
-        http_profile_delete
-    )
+       return json_response(req, resp.profile, 200)
+   end
+   ```
 
-    return true
-end
-```
+5. Обработчик http-запроса на удаление профиля:
 
-8. Экспортируем функции роли и зависимости из модуля
+   ```lua
+   local function http_profile_delete(req)
+       local profile_id = tonumber(req:stash('profile_id'))
+       local password = req:json().password
+       local bucket_id = vshard.router.bucket_id(profile_id)
+
+       local resp, error = err_vshard_router:pcall(
+           vshard.router.call,
+           bucket_id,
+           'write',
+           'profile_delete',
+           {profile_id, password}
+       )
+
+       if error then
+           return internal_error_response(req, error)
+       end
+       if resp.error then
+           return storage_error_response(req, resp.error)
+       end
+
+       return json_response(req, {info = "Deleted"}, 200)
+   end
+   ```
+
+6. Инициализация роли:
+
+   ```lua
+   local function init(opts)
+       rawset(_G, 'vshard', vshard)
+
+       if opts.is_master then
+           box.schema.user.grant('guest',
+               'read,write',
+               'universe',
+               nil, { if_not_exists = true }
+           )
+       end
+
+       local httpd = cartridge.service_get('httpd')
+
+       if not httpd then
+           return nil, err_httpd:new("not found")
+       end
+
+       -- Навешиваем функции-обработчики
+       httpd:route(
+           { path = '/profile', method = 'POST', public = true },
+           http_profile_add
+       )
+       httpd:route(
+           { path = '/profile/:profile_id', method = 'GET', public = true },
+           http_profile_get
+       )
+       httpd:route(
+           { path = '/profile/:profile_id', method = 'PUT', public = true },
+           http_profile_update
+       )
+       httpd:route(
+           {path = '/profile/:profile_id', method = 'DELETE', public = true},
+           http_profile_delete
+       )
+
+       return true
+   end
+   ```
+
+А в конце необходимо вернуть данные о роли:
+
 ```lua
 return {
     role_name = 'api',
@@ -574,7 +655,9 @@ return {
 
 ## Добавление зависимостей
 
-Пропишем новые роли в `init.lua` в корне проекта:
+В файле `init.lua` (в корне проекта) необходимо указать роли, которые будут
+использоваться кластером:
+
 ```lua
 local ok, err = cartridge.cfg({
     workdir = 'tmp/db',
@@ -590,11 +673,13 @@ local ok, err = cartridge.cfg({
 
 ## Тестирование
 
-Напишем модульные и интеграционные тесты, проверяющие правильность работы нашего приложения. Для написания тестов будем использовать `luatest`.
+Напишем модульные и интеграционные тесты, проверяющие правильность работы нашего
+приложения. Для написания тестов будем использовать `luatest`.
 
 ### Модульные тесты
 
-Протестируем правильность работы отдельных модулей нашего приложения. Файлы модульных тестов располагаются в папке `test/unit`.
+Протестируем правильность работы отдельных модулей нашего приложения.
+Файлы модульных тестов располагаются в папке `test/unit`.
 Тесты для функций работы с данными профилей поместим в файл `storage_test.lua`.
 
 ```lua
@@ -633,7 +718,7 @@ test_profile.salt = password_data.salt
 
 g.test_sample = function()
     t.assert_equals(type(box.cfg), 'table')
-    
+
 end
 
 g.test_profile_get_not_found = function()
@@ -744,9 +829,12 @@ end)
 
 ### Интеграционные тесты
 
-Для проверки правильности взаимодействий различных частей приложения напишем интеграционные тесты. Во время тестирования запустим приложение и проверим работоспособность с помощью http запросов.
+Для проверки правильности взаимодействий различных частей приложения напишем
+интеграционные тесты. Во время тестирования запустим приложение и проверим
+работоспособность с помощью http-запросов.
 
-Настроить конфигурацию тестируемого приложения можно в файле `test/helper/integration.lua`.
+Настроить конфигурацию тестируемого приложения можно в файле
+`test/helper/integration.lua`.
 
 ```lua
 -- integration.lua
@@ -776,7 +864,8 @@ helper.cluster = cartridge_helpers.Cluster:new({
 })
 ```
 
-Для удобства дальнейшего тестирования здесь же опишем функцию, выполняющую http запрос к приложению и проверяющую правильность ответа.
+Для удобства дальнейшего тестирования здесь же опишем функцию, выполняющую
+http-запрос к приложению и проверяющую правильность ответа.
 
 ```lua
 helper.assert_http_json_request = function (method, path, body, expected)
@@ -786,7 +875,7 @@ helper.assert_http_json_request = function (method, path, body, expected)
         headers = {["content-type"]="application/json; charset=utf-8"},
         raise = false
     })
-    
+
     if expected.body then
         t.assert_equals(response.json, expected.body)
     end
@@ -797,7 +886,7 @@ helper.assert_http_json_request = function (method, path, body, expected)
 end
 ```
 
-В файле `test/integration/api_test.lua` напишем тесты
+В файле `test/integration/api_test.lua` напишем тесты:
 
 ```lua
 --api_test.lua
@@ -810,7 +899,7 @@ local cluster = helper.cluster
 local deepcopy = require('table').deepcopy
 
 local test_profile = {
-    profile_id = 1, 
+    profile_id = 1,
     first_name = 'Petr',
     sur_name = 'Petrov',
     patronymic = 'Ivanovich',
@@ -857,7 +946,7 @@ g.test_on_put_not_found = function()
 end
 
 g.test_on_put_unauthorized = function()
-    helper.assert_http_json_request('put', '/profile/1', {password = 'passwd', changes = {msgs_count = 115}}, 
+    helper.assert_http_json_request('put', '/profile/1', {password = 'passwd', changes = {msgs_count = 115}},
     {body = {info = "Unauthorized"}, status = 401})
 end
 
@@ -880,29 +969,51 @@ g.test_on_delete_ok = function()
 end
 ```
 
-Запустить тесты можно с помощью команды `.rocks/bin/luatest` в корневой директории приложения.
+Запустить тесты можно с помощью команды `.rocks/bin/luatest` в корневой
+директории приложения.
 
-## Запуск проекта
-Можем запускать кластер!
+## Запуск приложения
+
+Можем запускать наш кластер!
+
+Сначала соберем его:
+
 ```bash
 profiles-storage $ tarantoolctl rocks make
+```
+
+Утилита `tarantoolctl` подтянет все указанные в `cache-scm-1.rockspec`
+зависимости и подготовит кластер к запуску.
+
+Теперь запустим кластер:
+
+```bash
 profiles-storage $ .rocks/bin/cartridge start
 ```
 
-Откроем в браузере веб-интерфейс и сделаем следующее:
-1. Создадим в одном экземпляре роль `api`  
-![](report_images/api-role.png)
-2. Cоздадим на другом экземпляре роль `storage`  
-![](report_images/storage-role.png)
+Подключимся к веб-интерфейсу, перейдя по адресу `http://127.0.0.1:8081/`
+и сделаем следующее:
 
-Должны создаться 2 репликасета по одному экземпляру Tarantool в каждом. 
+1. Назначим на одном инстансе роль `api`:
+
+   ![](report_images/api-role.png)
+
+2. Назначим на другом инстансе роль `storage`:
+
+   ![](report_images/storage-role.png)
+
+Должны создаться 2 набора реплик по одному инстансу Tarantool в каждом.
+
 ![](report_images/two-replicasets.png)
 
-Теперь у нас есть 2 репликасета с двумя ролями, но vshard еще не запущен. Нажмем кнопку **Bootstrap vshard** на закладке Cluster в веб-интерфейсе.
+Теперь у нас есть 2 набора реплик с двумя ролями, но vshard еще не запущен.
+Нажмем кнопку **Bootstrap vshard** на закладке **Cluster** в веб-интерфейсе.
+Кластер готов к работе!
 
-## Проверим работу
+## Проверка работоспособности
 
 Откроем новую консоль и добавим профиль через `curl`:
+
 ```bash
 you@yourmachine$ curl -X POST -v -H "Content-Type: application/json" -d '{
 "profile_id": 1,
@@ -916,6 +1027,7 @@ you@yourmachine$ curl -X POST -v -H "Content-Type: application/json" -d '{
 ```
 
 В ответе мы должны увидеть примерно следующее:
+
 ```bash
 *   Trying 127.0.0.1:8081...
 * TCP_NODELAY set
@@ -926,7 +1038,7 @@ you@yourmachine$ curl -X POST -v -H "Content-Type: application/json" -d '{
 > Accept: */*
 > Content-Type: application/json
 > Content-Length: 156
-> 
+>
 * upload completely sent off: 156 out of 156 bytes
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 201 Created
@@ -934,12 +1046,12 @@ you@yourmachine$ curl -X POST -v -H "Content-Type: application/json" -d '{
 < Server: Tarantool http (tarantool v2.1.3-6-g91e2a9638)
 < Content-type: application/json; charset=utf-8
 < Connection: keep-alive
-< 
+<
 * Connection #0 to host localhost left intact
 {"info":"Successfully created"}
 ```
 
-Проверим, что данные корректно сохранились в бд, сделаем GET запрос
+Проверим, что данные корректно сохранились в базе. Сделаем GET-запрос:
 
 ```bash
 you@yourmachine$ curl -X GET -v http://localhost:8081/profile/1 -d '{"password" : "qwerty"}'
@@ -955,7 +1067,7 @@ you@yourmachine$ curl -X GET -v http://localhost:8081/profile/1 -d '{"password" 
 > Accept: */*
 > Content-Length: 23
 > Content-Type: application/x-www-form-urlencoded
-> 
+>
 * upload completely sent off: 23 out of 23 bytes
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 200 Ok
@@ -963,12 +1075,12 @@ you@yourmachine$ curl -X GET -v http://localhost:8081/profile/1 -d '{"password" 
 < Server: Tarantool http (tarantool v2.1.3-6-g91e2a9638)
 < Content-type: application/json; charset=utf-8
 < Connection: keep-alive
-< 
+<
 * Connection #0 to host localhost left intact
 {"msgs_count":100,"patronymic":"Ivanovich","sur_name":"Ivnov","service_info":"admin","first_name":"Ivan","profile_id":1}
 ```
 
-Исправим опечатку в фамилии пользователя с помощью PUT запроса
+Исправим опечатку в фамилии пользователя с помощью PUT-запроса:
 
 ```bash
 you@yourmachine$ curl -X PUT -v -H "Content-Type: application/json" -d '{ "password" : "qwerty", "changes" : {"sur_name": "Ivanov"}}' http://localhost:8081/profile/1
@@ -984,7 +1096,7 @@ you@yourmachine$ curl -X PUT -v -H "Content-Type: application/json" -d '{ "passw
 > Accept: */*
 > Content-Type: application/json
 > Content-Length: 60
-> 
+>
 * upload completely sent off: 60 out of 60 bytes
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 200 Ok
@@ -992,12 +1104,13 @@ you@yourmachine$ curl -X PUT -v -H "Content-Type: application/json" -d '{ "passw
 < Server: Tarantool http (tarantool v2.1.3-6-g91e2a9638)
 < Content-type: application/json; charset=utf-8
 < Connection: keep-alive
-< 
+<
 * Connection #0 to host localhost left intact
 {"msgs_count":100,"patronymic":"Ivanovich","sur_name":"Ivanov","service_info":"admin","first_name":"Ivan","profile_id":1}
 ```
 
-Изменим пароль пользователя
+Изменим пароль пользователя:
+
 ```bash
 you@yourmachine$ curl -X PUT -v -H "Content-Type: application/json" -d '{ "password" : "qwerty", "changes" : {"password": "password"}}' http://localhost:8081/profile/1
 ```
@@ -1012,7 +1125,7 @@ you@yourmachine$ curl -X PUT -v -H "Content-Type: application/json" -d '{ "passw
 > Accept: */*
 > Content-Type: application/json
 > Content-Length: 62
-> 
+>
 * upload completely sent off: 62 out of 62 bytes
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 200 Ok
@@ -1020,18 +1133,20 @@ you@yourmachine$ curl -X PUT -v -H "Content-Type: application/json" -d '{ "passw
 < Server: Tarantool http (tarantool v2.1.3-6-g91e2a9638)
 < Content-type: application/json; charset=utf-8
 < Connection: keep-alive
-< 
+<
 * Connection #0 to host localhost left intact
 {"msgs_count":100,"patronymic":"Ivanovich","sur_name":"Ivanov","service_info":"admin","first_name":"Ivan","profile_id":1}
 ```
 
-Попытаемся удалить этого пользователя с помощью DELETE запроса, используя старый пароль
+Попытаемся удалить этого пользователя с помощью DELETE-запроса,
+используя старый пароль:
 
 ```bash
 curl -X DELETE -v http://localhost:8081/profile/1 -d '{"password" : "qwerty"}'
 ```
 
-Должны получить ответ Unauthorized
+Должны получить ответ `Unauthorized`:
+
 ```bash
 *   Trying 127.0.0.1:8081...
 * TCP_NODELAY set
@@ -1042,7 +1157,7 @@ curl -X DELETE -v http://localhost:8081/profile/1 -d '{"password" : "qwerty"}'
 > Accept: */*
 > Content-Length: 24
 > Content-Type: application/x-www-form-urlencoded
-> 
+>
 * upload completely sent off: 24 out of 24 bytes
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 401 Unauthorized
@@ -1050,12 +1165,12 @@ curl -X DELETE -v http://localhost:8081/profile/1 -d '{"password" : "qwerty"}'
 < Server: Tarantool http (tarantool v2.1.3-6-g91e2a9638)
 < Content-type: application/json; charset=utf-8
 < Connection: keep-alive
-< 
+<
 * Connection #0 to host localhost left intact
 {"info":"Unauthorized"}
 ```
 
-Теперь удалим пользователя, используя новый пароль
+Теперь удалим пользователя, используя новый пароль:
 
 ```bash
 curl -X DELETE -v http://localhost:8081/profile/1 -d '{"password" : "password"}'
@@ -1071,7 +1186,7 @@ curl -X DELETE -v http://localhost:8081/profile/1 -d '{"password" : "password"}'
 > Accept: */*
 > Content-Length: 25
 > Content-Type: application/x-www-form-urlencoded
-> 
+>
 * upload completely sent off: 25 out of 25 bytes
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 200 Ok
@@ -1079,12 +1194,12 @@ curl -X DELETE -v http://localhost:8081/profile/1 -d '{"password" : "password"}'
 < Server: Tarantool http (tarantool v2.1.3-6-g91e2a9638)
 < Content-type: application/json; charset=utf-8
 < Connection: keep-alive
-< 
+<
 * Connection #0 to host localhost left intact
 {"info":"Deleted"}
 ```
 
-Убедимся, что пользователь был действительно удален
+Убедимся, что пользователь был действительно удален:
 
 ```bash
 you@yourmachine$ curl -X GET -v http://localhost:8081/profile/1 -d '{"password" : "password"}'
@@ -1100,7 +1215,7 @@ you@yourmachine$ curl -X GET -v http://localhost:8081/profile/1 -d '{"password" 
 > Accept: */*
 > Content-Length: 25
 > Content-Type: application/x-www-form-urlencoded
-> 
+>
 * upload completely sent off: 25 out of 25 bytes
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 404 Not found
@@ -1108,6 +1223,10 @@ you@yourmachine$ curl -X GET -v http://localhost:8081/profile/1 -d '{"password" 
 < Server: Tarantool http (tarantool v2.1.3-6-g91e2a9638)
 < Content-type: application/json; charset=utf-8
 < Connection: keep-alive
-< 
+<
 * Connection #0 to host localhost left intact
 {"info":"Profile not found"}```
+```
+
+Отлично! Мы справились с задачей: реализовали хранилище профилей пользователей
+с проверкой пароля, добавили тесты, проверили работоспособность.
