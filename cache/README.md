@@ -1,17 +1,18 @@
-# Кэш
+# Кэши на Tarantool Cartridge
 
 ## Содержание
 
 * [Что будем делать](#что-будем-делать)
 * [Настройка окружения](#настройка-окружения)
-* [Роль `Router`](#роль-router)
-* [Роль обычного LRU-кэша](#роль-обычного-lru-кэша)
-* [Роль кэша с базой данных MySQL](#роль-кэша-с-базой-данных-mysql)
-* [Роль кэша с базой данных Vinyl](#роль-кэша-с-базой-данных-vinyl)
+* [Немного о ролях](#немного-о-ролях)
+* [Роль роутера (`api`)](#роль-роутера-api)
+* [Роль обычного LRU-кэша (`simple_cache`)](#роль-обычного-lru-кэша-simple-cache)
+* [Роль кэша с базой данных MySQL (`cache_mysql`)](#роль-кэша-с-базой-данных-mysql-cache-mysql)
+* [Роль кэша с базой данных Vinyl (`cache_vinyl`)](#роль-кэша-с-базой-данных-vinyl-cache-vinyl)
 * [Добавление зависимостей](#добавление-зависимостей)
 * [Тестирование](#тестирование)
-* [Запуск](#запуск)
-* [Примеры](#примеры)
+* [Запуск приложения](#запуск-приложения)
+* [Проверка работоспособности](#проверка-работоспособности)
 
 ## Что будем делать
 
@@ -19,15 +20,16 @@
 POST, PUT, GET, DELETE для создания, изменения, чтения и удаления аккаунта
 соответственно. В качестве хранилища будем использовать разные виды кэшей:
 
-1. Обычный LRU-кэш (memcache-like)
+1. Обычный LRU-кэш
 2. Кэш с базой данных MySQL
-3. Кэш с базой данных Vinyl
+3. Кэш с хранилищем холодных данных на Tarantool (Vinyl)
 
 Для разработки будем пользоваться фреймворком Tarantool Cartridge.
 
 ## Настройка окружения
 
-Для работы приложения необходимо установить `cartridge-cli` (версию > 1.3.1):
+Для работы с Tarantool Cartridge необходимо установить `cartridge-cli`
+(версию 1.3.1):
 
 ```bash
 tarantoolctl rocks install cartridge-cli
@@ -37,29 +39,67 @@ tarantoolctl rocks install cartridge-cli
 Подробнее про установку `cartridge-cli` можно прочитать
 [здесь](https://github.com/tarantool/cartridge-cli#installation).
 
-Tarantool Cartridge распределяет функции экземпляров с помощью ролей.
-Кластерная роль – это Lua-модуль, который реализует некоторую функцию и логику.
-
-## Роль `Router`
-
-Начнем реализовывать логику хранилища аккаунтов. Наше хранилище должно
-обрабатывать запросы на создание и удаление аккаунтов,
-чтение и обновление информации.
-
-Начнем с создания приложения. Назовем его `cache`.
+Теперь создадим наше приложение. Назовем его `cache`:
 
 ```
 $ cartridge create --name cache
 $ cd cache
 ```
 
-Первым делом создадим роль `Router`, которая будет принимать и обрабатывать
+## Немного о ролях
+
+Наше приложение-хранилище должно обрабатывать запросы на создание и удаление
+аккаунтов, чтение и обновление информации.
+
+Разобьем наше приложение на 4 роли:
+
+1. Роль `api` реализует функции роутера.
+2. Роль `simple_cache` реализует функции обычного LRU-кэша.
+3. Роль `cache_mysql` реализует функции кэша с базой данных MySQL.
+4. Роль `cache_vinyl` реализует функции кэша с базой данных Vinyl.
+
+Кластерная роль &mdash; это Lua-модуль, который реализует некоторую функцию и логику.
+С помощью Tarantool Cartridge мы можем назначать роли на инстансы Tarantool
+в кластере. Подробнее об этом можно прочитать
+(тут)[https://www.tarantool.io/ru/doc/2.2/book/cartridge/cartridge_dev/#cluster-roles].
+
+Чтобы реализовать роль, которая будет работать на кластере, то &mdash; помимо
+описания бизнес-логики этой роли &mdash; нам необходимо написать несколько функций
+обратного вызова, через которые кластер и будет управлять жизненным циклом нашей
+роли.
+
+Список этих функций невелик, и почти все из них уже реализованы заглушками при
+создании проекта из шаблона. Вот что мы найдем в `app/roles/custom.lua`:
+
+* `init(opts)` &mdash; создание роли и ее инициализация;
+* `stop()` &mdash; завершение работы роли;
+* `validate_config(conf_new, conf_old)` &mdash; функция валидирования новой
+  конфигурации нашей роли;
+* `apply_config(conf, opts)` &mdash; применение новой конфигурации.
+
+Как мы уже говорили, сам файл роли &mdash; это просто Lua-модуль,
+но в конце него должен быть реализован экспорт необходимых функций и переменных:
+
+```lua
+return {
+    role_name = 'custom_role',
+    init = init,
+    stop = stop,
+    validate_config = validate_config,
+    apply_config = apply_config,
+    dependencies = {},
+}
+```
+
+## Роль роутера (`api`)
+
+Первым делом создадим роль `api`, которая будет принимать и обрабатывать
 запросы, обращаясь в кэш.
 
 Все роли нашего приложения лежат в директории `app/roles`. Для нашей роли
 создадим здесь файл `api.lua`.
 
-Для корректной работы подключим необходимые библиотеки:
+Для корректной работы подключим необходимые модули:
 
 ```lua
 -- api.lua
@@ -71,8 +111,24 @@ local err_vshard_router = errors.new_class("Vshard routing error")
 local err_httpd = errors.new_class("httpd error")
 ```
 
-И добавим вспомогательную функцию `verify_response`, которая сформирует сообщения
-об ошибках, если что-то пойдет не так:
+Первым мы подключаем модуль
+[vshard](https://www.tarantool.io/ru/doc/2.2/reference/reference_rock/vshard/).
+Это позволит нам в будущем шардировать (т.е. горизонтально масштабировать)
+нашу базу: мы сможем разбить весь массив данных на несколько частей и распределить
+эти части по разным серверам. На каждом таком сервере запущен свой инстанс
+Tarantool, который обрабатывает только те части данных, которые хранятся на
+данном сервере, что позволяет при повышении нагрузки повышать общую
+производительность кластера чисто за счет добавления новых серверов.
+Технически, весь массив данных изначально разбивается на большое количество
+[виртуальных сегментов](https://www.tarantool.io/ru/doc/2.2/reference/reference_rock/vshard/vshard_architecture/#virtual-buckets)
+(англ. virtual buckets, для краткости &mdash; просто "бакетов"), которое значительно
+превосходит количество физических серверов. Число серверов можно менять на лету,
+незаметно для работы базы и приложения, без перезапуска: механизм ребалансировки
+перераспределит бакеты между серверами в случае удаления серверов или добавления
+новых.
+
+Идем дальше. Добавим вспомогательную функцию `verify_response`, которая
+сформирует сообщения об ошибках, если что-то пойдет не так:
 
 ```lua
 -- api.lua
@@ -154,6 +210,12 @@ end
 
    Данная функция обращается к кэшу и, если аккаунт создан, возвращает сообщение
    об успехе операции.
+
+  **Примечание:** В коде выше мы использовали Lua-функцию
+  [pcall()](https://www.lua.org/manual/5.1/manual.html#pdf-pcall),
+  чтобы вызвать функцию `err_vshard_router()` в защищенном режиме: `pcall()`
+  ловит исключения, бросаемые функцией `err_vshard_router()`, и возвращает
+  статус-код, не позволяя ошибкам пробрасываться наружу.
 
 2. Функция `http_account_delete` удаляет аккаунт из хранилища:
 
@@ -247,7 +309,12 @@ end
    end
    ```
 
-Теперь назначим функции соответствующим запросам:
+Теперь назначим функции соответствующим запросам.
+
+  **Примечание:** В этом коде мы используем Lua-функцию
+  [rawset()](https://www.lua.org/manual/5.1/manual.html#pdf-rawset), чтобы
+  задать значение поля `vshard` в системном спейсе `_G`, который находится в
+  области глобальных переменных, без вызова мета-методов.
 
 ```lua
 -- api.lua
@@ -290,7 +357,8 @@ local function init(opts)
 end
 ```
 
-А в конце нам необходимо вернуть данные о роли:
+А в конце нам необходимо экспортировать функции роли и зависимости из нашего
+модуля:
 
 ```lua
 -- api.lua
@@ -301,7 +369,9 @@ return {
 }
 ```
 
-## Роль обычного LRU-кэша
+Первая роль готова!
+
+## Роль обычного LRU-кэша (`simple_cache`)
 
 Сперва подключим все необходимые модули:
 
@@ -417,7 +487,7 @@ local log = require('log')
    end
    ```
 
-3. Функция  `account_delete` удаляет аккаунт из кэша:
+3. Функция `account_delete` удаляет аккаунт из кэша:
 
    ```lua
    -- simple_cache.lua
@@ -435,7 +505,7 @@ local log = require('log')
    end
    ```
 
-4. Функция  `account_get` возвращает значение заданного поля аккаунта:
+4. Функция `account_get` возвращает значение заданного поля аккаунта:
 
    ```lua
    -- simple_cache.lua
@@ -537,7 +607,7 @@ return {
 }
 ```
 
-## Роль кэша с базой данных MySQL
+## Роль кэша с базой данных MySQL (`cache_mysql`)
 
 Эффективным подходом при работе с базами данных является разделение данных на
 горячие и холодные. Горячие данные хранятся в кэше, что обеспечивает высокую
@@ -599,7 +669,7 @@ end
 -- cache_mysql.lua
 local function fetch(login)
     checks('string')
-	-- обращение к MySQL
+  -- обращение к MySQL
     local account = conn:execute(string.format("SELECT * FROM account WHERE login = \'%s\'", login))
 
     if (#account[1] == 0) then
@@ -695,14 +765,16 @@ end
 
 ```lua
 -- cache_mysql.lua
-local function write_behind() --update changed tuple in vinyl storage
+local function write_behind() -- update changed tuple in vinyl storage
+
     local batch = {}
     for login, _ in pairs(write_queue) do
-		local account = box.space.account:get(login)
+
+        local account = box.space.account:get(login)
         if (account ~= nil) then
             table.insert(batch, account)
         end
-            
+
         if (#batch >= batch_size) then
             conn:begin()
             update_batch(batch)
@@ -714,6 +786,7 @@ local function write_behind() --update changed tuple in vinyl storage
             batch = {}
             conn:commit()
         end
+
     end
 
     if (#batch ~= 0) then
@@ -788,12 +861,12 @@ end
 
 В функции `account_delete` нужно также удалить аккаунт из холодного хранилища:
 
-```     lua
+``` lua
 -- cache_mysql.lua
 conn:execute(string.format("DELETE FROM account WHERE login = \'%s\'", login ))
 ```
 
-## Роль кэша с базой данных Vinyl
+## Роль кэша с базой данных Vinyl (`cache_vinyl`)
 
 Для хранения холодных данных можно использовать дисковый движок Vinyl,
 встроенный в Tarantool. Первым делом вместо подключения к MySQL в `init_spaces`
@@ -895,51 +968,55 @@ account_vinyl:create_index('bucket_id', {
 
    ```lua
    -- cache_vinyl.lua
-   local function write_behind() --update changed tuple in vinyl storage
-    local batch = {}
+   local function write_behind() -- update changed tuple in vinyl storage
+
+       local batch = {}
        for login, _ in pairs(write_queue) do
-   
-        local account = box.space.account:get(login)
+
+           local account = box.space.account:get(login)
            if (account ~= nil) then
                table.insert(batch, account)
            end
-               
-        if (#batch >= batch_size) then
+
+           if (#batch >= batch_size) then
                box.begin()
+
                update_batch(batch)
 
                for _,  acc in pairs(batch) do
                    write_queue[acc['login']] = nil
-            end
-   
-               batch = {}          
-            box.commit()
+               end
+
+             batch = {}
+             box.commit()
            end
-    end
-   
+
+       end
+
        if (#batch ~= 0) then
-        box.begin()
+           box.begin()
+
            update_batch(batch)
-   
-        for _,  acc in pairs(batch) do
+
+           for _,  acc in pairs(batch) do
                write_queue[acc['login']] = nil
            end
 
            batch = {}
            box.commit()
        end
-   
+
        local length = 0
        for acc, status in pairs(write_queue) do
            length = length + 1
        end
-   
+
        if (length == 0) then
            log.info("All updates are applied")
        else
            log.warn(string.format("%d updates failed", length))
        end
-   
+
        return true
    end
    ```
@@ -949,11 +1026,12 @@ account_vinyl:create_index('bucket_id', {
 ```lua
 -- cache_vinyl.lua
 if peek_vinyl(login) then
-	box.space.account_vinyl:delete(login)
+  box.space.account_vinyl:delete(login)
 end
 ```
 
-где `peek_vinyl` - это функция, которая проверяет наличие аккаунта в хранилище:
+где `peek_vinyl` &mdash; это функция, которая проверяет наличие аккаунта
+в хранилище:
 
 ```lua
 -- cache_vinyl.lua
@@ -971,7 +1049,8 @@ end
 
 ## Добавление зависимостей
 
-В `init.lua` необходимо указать роли, которые будут использоваться кластером:
+В файле `init.lua` (в корне проекта) необходимо указать роли, которые будут
+использоваться кластером:
 
 ```lua
 -- init.lua
@@ -1012,8 +1091,8 @@ build = {
 
 ## Тестирование
 
-Описанные выше роли необходимо покрыть тестами.
-Для этого рекомендуется использовать модуль `luatest`.
+Напишем модульные и интеграционные тесты, проверяющие правильность работы нашего
+приложения. Для написания тестов будем использовать `luatest`.
 
 ### Модульные тесты
 
@@ -1192,8 +1271,8 @@ end)
 
 ```lua
 g.after_all(function()
-	g.cluster:stop()
-	fio.rmtree(g.cluster.datadir)
+  g.cluster:stop()
+  fio.rmtree(g.cluster.datadir)
 end)
 ```
 
@@ -1205,9 +1284,11 @@ cache $ .rocks/bin/luatest ./test/integration/cache_mysql_test.lua
 cache $ .rocks/bin/luatest ./test/integration/cache_vinyl_test.lua
 ```
 
-## Запуск
+## Запуск приложения
 
-Соберем кластер:
+Можем запускать наш кластер!
+
+Сначала соберем его:
 
 ```bash
 cache $ tarantoolctl rocks make
@@ -1216,25 +1297,26 @@ cache $ tarantoolctl rocks make
 Утилита `tarantoolctl` подтянет все указанные в `cache-scm-1.rockspec`
 зависимости и подготовит кластер к запуску.
 
-Запустим кластер:
+Теперь запустим кластер:
 
 ```bash
 cache $ cartridge start
 ```
 
-Подключиться к веб-интерфейсу можно, перейдя по адресу `http://127.0.0.1:8081/`.
+Подключимся к веб-интерфейсу, перейдя по адресу `http://127.0.0.1:8081/`.
 
 Сначала назначим роль роутеру:
 
 ![](tutorial_images/router.png)
 
-Затем назначим кэш:
+Затем назначим роль кэшу:
 
 ![](tutorial_images/cache.png)
 
-Запускаем **Bootstrap vshard**, и кластер готов к работе.
+Нажмем кнопку **Bootstrap vshard** на закладке **Cluster** в веб-интерфейсе.
+Кластер готов к работе!
 
-## Примеры
+## Проверка работоспособности
 
 Проверим работу кластера. Создадим аккаунт:
 
