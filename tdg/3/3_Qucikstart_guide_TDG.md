@@ -298,7 +298,8 @@ services:
   delete_inactive_persons:
     doc: "delete_inactive_persons"
     function: delete_inactive_persons
-    return_type: array
+    return_type:
+      type: array
       items: Person
     args:
       threshold_date: string
