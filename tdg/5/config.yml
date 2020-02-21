@@ -1,0 +1,52 @@
+    types:
+      __file: model.avsc
+
+    functions:
+      router: {__file: router.lua}
+
+      classifier: {__file: classificator.lua}
+
+      select_user_books: {__file: select_user_books.lua}
+
+    pipelines:
+      router:
+        - router
+      classifier:
+        - classifier
+      select_user_books:
+        - select_user_books
+
+    connector:
+      input:
+        - name: http
+          type: http
+          pipeline: router
+
+      routing:
+        - key: input_key
+          output: to_input_processor
+
+      output:
+        - name: to_input_processor
+          type: input_processor
+
+    input_processor:
+      classifiers:
+        - name: classifier
+          pipeline: classifier
+
+      storage:
+        - key: add_user
+          type: User
+        - key: add_book
+          type: Book
+        - key: add_subscription
+          type: Subscription
+
+    services:
+      select_user_books:
+        doc: "select_user_books"
+        function: select_user_books
+        return_type: string
+        args:
+          user_id: long

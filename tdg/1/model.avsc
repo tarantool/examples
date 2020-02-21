@@ -1,0 +1,14 @@
+[
+    {
+        "name": "Person",
+        "type": "record",
+        "logicalType": "Aggregate",
+        "doc": "person",
+        "fields": [
+            {"name": "id", "type": "long"},
+            {"name": "name", "type": "string"},
+            {"name": "lastActivityDate", "type": ["null", "string"]}
+        ],
+        "indexes": ["id", "name", "lastActivityDate"]
+    }
+]

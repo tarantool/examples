@@ -1,0 +1,52 @@
+[
+    {
+        "name": "User",
+        "type": "record",
+        "logicalType": "Aggregate",
+        "doc": "читатель",
+        "fields": [
+            {"name": "id", "type": "long"},
+            {"name": "name", "type": "string"}
+        ],
+        "indexes": ["id"],
+        "relations": [
+          { "name": "subscription", "to": "Subscription", "count": "many", "from_fields": "id", "to_fields": "user_id" }
+        ]
+    },
+    {
+        "name": "Book",
+        "type": "record",
+        "logicalType": "Aggregate",
+        "doc": "книга",
+        "fields": [
+            {"name": "id", "type": "long"},
+            {"name": "book_name", "type": "string"},
+            {"name": "author", "type": "string"}
+        ],
+        "indexes": ["id"],
+        "relations": [
+          { "name": "subscription", "to": "Subscription", "count": "many", "from_fields": "id", "to_fields": "book_id" }
+        ]
+    },
+    {
+    "name": "Subscription",
+    "type": "record",
+    "logicalType": "Aggregate",
+    "doc": "абонемент",
+    "fields": [
+        {"name": "id", "type": "long"},
+        {"name": "user_id", "type": "long"},
+        {"name": "book_id", "type": "long"}
+    ],
+    "indexes": [
+      {"name":"pkey", "parts": ["id", "user_id"]},
+      "user_id",
+      "book_id"
+    ],
+    "affinity": "user_id",
+    "relations": [
+      { "name": "user", "to": "User", "count": "one", "from_fields": "user_id", "to_fields": "id" },
+      { "name": "book", "to": "Book", "count": "one", "from_fields": "book_id", "to_fields": "id" }
+    ]
+    }
+]

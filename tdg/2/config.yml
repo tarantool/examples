@@ -1,0 +1,44 @@
+types:
+  __file: model.avsc
+
+functions:
+  router: {__file: router.lua}
+
+  classifier: {__file: classificator.lua}
+
+  account_handler: {__file: account_handler.lua}
+
+pipelines:
+  router:
+    - router
+  classifier:
+    - classifier
+  account_handler:
+    - account_handler
+
+connector:
+  input:
+    - name: http
+      type: http
+      pipeline: router
+
+  routing:
+    - key: input_key
+      output: to_input_processor
+
+  output:
+    - name: to_input_processor
+      type: input_processor
+
+input_processor:
+  classifiers:
+    - name: classifier
+      pipeline: classifier
+
+  routing:
+    - key: account_key
+      pipeline: account_handler
+
+  storage:
+    - key: account_key
+      type: Account

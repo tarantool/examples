@@ -1,0 +1,36 @@
+types:
+  __file: model.avsc
+
+functions:
+  router: {__file: router.lua}
+  classifier: {__file: classificator.lua}
+
+
+pipelines:
+  router:
+    - router
+  classifier:
+    - classifier
+
+connector:
+  input:
+    - name: http
+      type: http
+      pipeline: router
+
+  routing:
+    - key: input_key
+      output: to_input_processor
+
+  output:
+    - name: to_input_processor
+      type: input_processor
+
+input_processor:
+  classifiers:
+    - name: classifier
+      pipeline: classifier
+
+  storage:
+    - key: add_person
+      type: Person

@@ -1,0 +1,13 @@
+[
+  {
+    "name": "Account",
+    "type": "record",
+    "logicalType": "Aggregate",
+    "doc": "User's account",
+    "fields": [
+      {"name": "id", "type": "string"},
+      {"name": "name", "type": ["null", "string"], "default": null}
+    ],
+    "indexes": ["id"]
+  }
+]

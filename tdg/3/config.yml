@@ -1,0 +1,47 @@
+types:
+  __file: model.avsc
+
+functions:
+  router: {__file: router.lua}
+  classifier: {__file: classificator.lua}
+  delete_inactive_persons: {__file: delete_inactive_persons.lua}
+
+
+pipelines:
+  router:
+    - router
+  classifier:
+    - classifier
+  delete_inactive_persons:
+    - delete_inactive_persons
+
+connector:
+  input:
+    - name: http
+      type: http
+      pipeline: router
+
+  routing:
+    - key: input_key
+      output: to_input_processor
+
+  output:
+    - name: to_input_processor
+      type: input_processor
+
+input_processor:
+  classifiers:
+    - name: classifier
+      pipeline: classifier
+
+  storage:
+    - key: add_person
+      type: Person
+
+services:
+  delete_inactive_persons:
+    doc: "delete_inactive_persons"
+    function: delete_inactive_persons
+    return_type: string
+    args:
+      threshold_date: string
