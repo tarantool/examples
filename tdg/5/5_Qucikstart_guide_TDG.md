@@ -60,7 +60,7 @@ http://localhost:8080), где
         "doc": "читатель",
         "fields": [
             {"name": "id", "type": "long"},
-            {"name": "name", "type": "string"}
+            {"name": "username", "type": "string"}
         ],
         "indexes": ["id"],
         "relations": [
