@@ -225,11 +225,11 @@ local function init_spaces()
         unique = false,
         if_not_exists = true,
     })
-
+    local mysql_host = os.getenv('MYSQL_HOST')
     conn = mysql.connect({
-        host = '127.0.0.1', 
+        host = mysql_host or '127.0.0.1',
         user = 'root', 
-        password = '1234', 
+        password = '1234',
         db = 'tarantool'
     })
 
