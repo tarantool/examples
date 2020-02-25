@@ -4,7 +4,9 @@ services:
 
 before_install:
   - docker pull tarantool/cartridge:2
-  - docker build -t tarantool/examples .
+  - docker build -t examples/profiles-storage profile-storage -f profile-storage/Dockerfile
+  - docker build -t examples/cache cache -f cache/Dockerfile
 
 script:
-  - docker run --rm tarantool/cartridge:2 sh -c ""
+  - docker run --rm examples/profile-storage
+  - docker run --rm examples/cache
