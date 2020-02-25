@@ -11,7 +11,7 @@ before_install:
   - docker network create cache
   - docker run --rm -it -e MYSQL_ROOT_PASSWORD=1234 -e MYSQL_DATABASE=tarantool --network=cache --name=mysql -d mysql:5.7
   - sleep 15   # change to wait_for_mysql.sh
-  - docker exec -it mysql mysql -uroot -p1234 -e "create database tarantool; use tarantool; CREATE TABLE account (login VARCHAR(30), password VARCHAR(30), bucket_id INT, name VARCHAR(30), email VARCHAR(30), last_action INT, data VARCHAR(30))"
+  - docker exec -it mysql mysql -uroot -p1234 -e "use tarantool; CREATE TABLE account (login VARCHAR(30), password VARCHAR(30), bucket_id INT, name VARCHAR(30), email VARCHAR(30), last_action INT, data VARCHAR(30))"
 
 script:
   - docker run --rm examples/profile-storage:latest
