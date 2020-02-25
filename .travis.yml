@@ -15,4 +15,4 @@ before_install:
 
 script:
   - docker run --rm examples/profile-storage:latest
-  - docker run --rm --network=cache -e MYSQL_HOST=mysq examples/cache:latest
+  - docker run --rm --network=cache -e MYSQL_HOST=mysql examples/cache:latest
