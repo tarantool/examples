@@ -30,7 +30,7 @@ end
 g.test_on_post_ok = function ()
     local user_with_password = deepcopy(test_profile)
     user_with_password.password = user_password
-    helper.assert_http_json_request('post', '/profile', user_with_password, {status=201})
+    helper.assert_http_json_request('post', '/profile', user_with_password, {body = {info = "Successfully created"}, status=201})
 end
 
 g.test_on_post_conflict = function()
