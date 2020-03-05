@@ -6,18 +6,18 @@
 
 Проверьте работоспособность TDG, открыв web-интерфейс по адресу
 <http://ip-адрес:порт> (при развёртывании кластера с примером конфигурации из папки
-`deploy` это, например http://172.19.0.2:8080, а для локально развернутого TDG это
+`deploy` это, например, http://172.19.0.2:8080, а для локально развернутого TDG это
 http://localhost:8080), где
 
-    * ip-адрес - это адрес сервера, где установлен любой экземпляр TDG,
-    * порт - это http-порт любого из экземпляров TDG на этом сервере.
+* `ip-адрес` — это адрес сервера, где установлен любой экземпляр TDG,
+* `порт` — это http-порт любого из экземпляров TDG на этом сервере.
 
 При входе в web-интерфейс свеже-установленного TDG авторизация не требуется, поэтому
 вы увидите главное окно с навигационным меню слева.
 
-По-умолчанию открывается вкладка **Cluster**, где можно выполнить настройку
+По умолчанию открывается вкладка **Cluster**, где можно выполнить настройку
 кластера (назначить роли и настроить репликацию если они не были заданы в файле
-конфигурации кластера при установке) для экземпляров кластера TDG. Подробнее -
+конфигурации кластера при установке) для экземпляров кластера TDG. Подробнее —
 в документации https://www.tarantool.io/ru/tdg/1.5/cluster_setup/#replicasets-roles-setup.
 
 После выполнения первоначальной конфигурации кластера нажмите кнопку **Bootstrap vshard**
@@ -26,8 +26,8 @@ http://localhost:8080), где
 ## Подготовка установленного TDG к работе
 
 Для завершения процесса запуска TDG в работу необходимо:
--- Задать доменную модель.
--- Загрузить конфигурацию и исполняемый код для обработки данных.
+* задать доменную модель,
+* загрузить конфигурацию и исполняемый код для обработки данных.
 
 Все необходимые данные указываются в конфигурационном файле, включая ссылки на другие
 файлы. Затем все необходимые файлы (конфигурационный файл и все упоминаемые в нём
@@ -117,58 +117,58 @@ http://localhost:8080), где
 В нём мы опишем сервис `select_user_books`.
 
 ```yml
-    types:
-      __file: model.avsc
+types:
+  __file: model.avsc
 
-    functions:
-      router: {__file: router.lua}
+functions:
+  router: {__file: router.lua}
 
-      classifier: {__file: classificator.lua}
+  classifier: {__file: classificator.lua}
 
-      select_user_books: {__file: select_user_books.lua}
+  select_user_books: {__file: select_user_books.lua}
 
-    pipelines:
-      router:
-        - router
-      classifier:
-        - classifier
-      select_user_books:
-        - select_user_books
+pipelines:
+  router:
+    - router
+  classifier:
+    - classifier
+  select_user_books:
+    - select_user_books
 
-    connector:
-      input:
-        - name: http
-          type: http
-          pipeline: router
+connector:
+  input:
+    - name: http
+      type: http
+      pipeline: router
 
-      routing:
-        - key: input_key
-          output: to_input_processor
+  routing:
+    - key: input_key
+      output: to_input_processor
 
-      output:
-        - name: to_input_processor
-          type: input_processor
+  output:
+    - name: to_input_processor
+      type: input_processor
 
-    input_processor:
-      classifiers:
-        - name: classifier
-          pipeline: classifier
+input_processor:
+  classifiers:
+    - name: classifier
+      pipeline: classifier
 
-      storage:
-        - key: add_user
-          type: User
-        - key: add_book
-          type: Book
-        - key: add_subscription
-          type: Subscription
+  storage:
+    - key: add_user
+      type: User
+    - key: add_book
+      type: Book
+    - key: add_subscription
+      type: Subscription
 
-    services:
-      select_user_books:
-        doc: "select_user_books"
-        function: select_user_books
-        return_type: string
-        args:
-          user_id: long
+services:
+  select_user_books:
+    doc: "select_user_books"
+    function: select_user_books
+    return_type: string
+    args:
+      user_id: long
 ```
 
 ### Исполняемый код
@@ -227,19 +227,19 @@ return param
 #### Обработчик
 
 Создайте файл `select_user_books.lua` со следующим содержимым:
-    ```lua
-    local param = ...
-    local user_id = param.user_id
+```lua
+local param = ...
+local user_id = param.user_id
 
-    local user_books = repository.find('Subscription', {{"$user_id", "==", user_id}})
+local user_books = repository.find('Subscription', {{"$user_id", "==", user_id}})
 
-    local result = {}
-    for _, book in pairs(user_books) do
-        table.insert(result, book.book_id)
-    end
+local result = {}
+for _, book in pairs(user_books) do
+    table.insert(result, book.book_id)
+end
 
-    return json.encode(result)
-    ```
+return json.encode(result)
+```
 
 Он выполняет поиск по хранящимся данным при помощи функции программного интерфейса репозитория.
 Подробнее про его функции читайте в документации - https://www.tarantool.io/ru/tdg/1.5/repository_api/.
@@ -279,86 +279,86 @@ return param
 Для загрузки пользователей:
 
 Первый
-    ```json
-    {
-     "id": 1,
-     "username": "John Smith"
-    }
-    ```
+```json
+{
+ "id": 1,
+ "username": "John Smith"
+}
+```
 
 Второй
-    ```json
-    {
-     "id": 2,
-     "username": "Adam Sanders"
-    }
-    ```
+```json
+{
+ "id": 2,
+ "username": "Adam Sanders"
+}
+```
 
 Для загрузки книг:
 
 Первая
-    ```json
-    {
-     "id": 1,
-     "book_name": "Fight Club",
-     "author": "Chack Palanick"
-    }
-    ```
+```json
+{
+ "id": 1,
+ "book_name": "Fight Club",
+ "author": "Chack Palanick"
+}
+```
 
 Вторая
-    ```json
-    {
-     "id": 2,
-     "book_name": "The Revenant: a novel of revenge",
-     "author": "Michael Punke"
-    }
-    ```
+```json
+{
+ "id": 2,
+ "book_name": "The Revenant: a novel of revenge",
+ "author": "Michael Punke"
+}
+```
 
 Третья
-    ```json
-    {
-     "id": 3,
-     "book_name": "The Great Gatsby",
-     "author": "F.S. Fitzgerald"
-    }
-    ```
+```json
+{
+ "id": 3,
+ "book_name": "The Great Gatsby",
+ "author": "F.S. Fitzgerald"
+}
+```
 
 Для загрузки абонементов:
 
 Первый
-    ```json
-    {
-     "id": 1,
-     "user_id": 1,
-     "book_id": 1
-    }
-    ```
+```json
+{
+ "id": 1,
+ "user_id": 1,
+ "book_id": 1
+}
+```
 
 Второй
-    ```json
-    {
-     "id": 2,
-     "user_id": 1,
-     "book_id": 3
-    }
-    ```
+```json
+{
+ "id": 2,
+ "user_id": 1,
+ "book_id": 3
+}
+```
 
 ## Проверка работы сервиса
 
 Проверить правильность работы сервиса можно с помощью `GraphQL`.
 
 Перейдите на соответствующию вкладку и отправьте следующий GraphQL-запрос:
-    ```graphql
-    {
-     select_user_books(user_id: 1)
-    }
-    ```
+```graphql
+{
+ select_user_books(user_id: 1)
+}
+```
 
 Ответ будет выглядеть примерно так (`id` книг которые взял пользователь с `user_id`=1):
-    ```graphql
-    {
-     "data": {
-       "select_user_books": "[1, 3]"
-     }
-    }
+```graphql
+{
+ "data": {
+   "select_user_books": "[1, 3]"
+ }
+}
     ```
