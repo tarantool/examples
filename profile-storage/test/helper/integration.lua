@@ -36,10 +36,7 @@ helper.assert_http_json_request = function (method, path, body, expected)
         raise = false
     })
 
-    if expected.body then
-        t.assert_equals(response.json, expected.body)
-    end
-
+    t.assert_equals(response.json, expected.body)
     t.assert_equals(response.status, expected.status)
 
     return response
