@@ -1,4 +1,3 @@
-local vshard = require('vshard')
 local cartridge = require('cartridge')
 local errors = require('errors')
 local log = require('log')
@@ -56,11 +55,13 @@ end
 local function http_profile_add(req)
     local profile = req:json()
 
-    local bucket_id = vshard.router.bucket_id(profile.profile_id)
+    local router = cartridge.service_get('vshard-router').get()
+    local bucket_id = router:bucket_id(profile.profile_id)
     profile.bucket_id = bucket_id
 
     local resp, error = err_vshard_router:pcall(
-        vshard.router.call,
+        router.call,
+        router,
         bucket_id,
         'write',
         'profile_add',
@@ -83,10 +84,12 @@ local function http_profile_update(req)
     local changes = data.changes
     local password = data.password
 
-    local bucket_id = vshard.router.bucket_id(profile_id)
+    local router = cartridge.service_get('vshard-router').get()
+    local bucket_id = router:bucket_id(profile_id)
     
     local resp, error = err_vshard_router:pcall(
-        vshard.router.call,
+        router.call,
+        router,
         bucket_id,
         'read',
         'profile_update',
@@ -106,10 +109,12 @@ end
 local function http_profile_get(req)
     local profile_id = tonumber(req:stash('profile_id'))
     local password = req:json().password
-    local bucket_id = vshard.router.bucket_id(profile_id)
+    local router = cartridge.service_get('vshard-router').get()
+    local bucket_id = router:bucket_id(profile_id)
 
     local resp, error = err_vshard_router:pcall(
-        vshard.router.call,
+        router.call,
+        router,
         bucket_id,
         'read',
         'profile_get',
@@ -129,10 +134,12 @@ end
 local function http_profile_delete(req)
     local profile_id = tonumber(req:stash('profile_id'))
     local password = req:json().password
-    local bucket_id = vshard.router.bucket_id(profile_id)
+    local router = cartridge.service_get('vshard-router').get()
+    local bucket_id = router:bucket_id(profile_id)
 
     local resp, error = err_vshard_router:pcall(
-        vshard.router.call,
+        router.call,
+        router,
         bucket_id,
         'write',
         'profile_delete',
@@ -150,8 +157,6 @@ local function http_profile_delete(req)
 end
 
 local function init(opts)
-    rawset(_G, 'vshard', vshard)
-
     if opts.is_master then
         box.schema.user.grant('guest',
             'read,write',

@@ -150,11 +150,6 @@ local function init(opts)
         box.schema.func.create('profile_get', {if_not_exists = true})
         box.schema.func.create('profile_update', {if_not_exists = true})
         box.schema.func.create('profile_delete', {if_not_exists = true})
-
-        box.schema.role.grant('public', 'execute', 'function', 'profile_add', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'profile_get', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'profile_update', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'profile_delete', {if_not_exists = true})
     end
 
     rawset(_G, 'profile_add', profile_add)

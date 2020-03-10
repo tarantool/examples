@@ -367,11 +367,6 @@ end
            box.schema.func.create('profile_get', {if_not_exists = true})
            box.schema.func.create('profile_update', {if_not_exists = true})
            box.schema.func.create('profile_delete', {if_not_exists = true})
-
-           box.schema.role.grant('public', 'execute', 'function', 'profile_add', {if_not_exists = true})
-           box.schema.role.grant('public', 'execute', 'function', 'profile_get', {if_not_exists = true})
-           box.schema.role.grant('public', 'execute', 'function', 'profile_update', {if_not_exists = true})
-           box.schema.role.grant('public', 'execute', 'function', 'profile_delete', {if_not_exists = true})
        end
 
        rawset(_G, 'profile_add', profile_add)
@@ -415,7 +410,6 @@ return {
 
 ```lua
 --app/roles/api.lua
-local vshard = require('vshard')
 local cartridge = require('cartridge')
 local errors = require('errors')
 local log = require('log')```
@@ -487,11 +481,13 @@ local err_httpd = errors.new_class("httpd error")
    local function http_profile_add(req)
        local profile = req:json()
 
-       local bucket_id = vshard.router.bucket_id(profile.profile_id)
+       local router = cartridge.service_get('vshard-router').get()
+       local bucket_id = router:bucket_id(profile.profile_id)
        profile.bucket_id = bucket_id
 
        local resp, error = err_vshard_router:pcall(
-           vshard.router.call,
+           router.call,
+           router,
            bucket_id,
            'write',
            'profile_add',
@@ -511,9 +507,9 @@ local err_httpd = errors.new_class("httpd error")
 
      **Примечание:** В коде выше мы использовали Lua-функцию
      [pcall()](https://www.lua.org/manual/5.1/manual.html#pdf-pcall),
-     чтобы вызвать функцию `err_vshard_router()` в защищенном режиме: `pcall()`
-     ловит исключения, бросаемые функцией `err_vshard_router()`, и возвращает
-     статус-код, не позволяя ошибкам пробрасываться наружу.
+     чтобы вызвать функцию `router.call` в защищенном режиме: `pcall()`
+     ловит исключения, бросаемые функцией `router.call`, и возвращает
+     ошибку `err_vshard_router`, определение которой приведено выше, не позволяя ошибкам пробрасываться наружу.
 
 3. Обработчик http-запроса на изменение профиля:
 
@@ -524,10 +520,12 @@ local err_httpd = errors.new_class("httpd error")
        local changes = data.changes
        local password = data.password
 
-       local bucket_id = vshard.router.bucket_id(profile_id)
+       local router = cartridge.service_get('vshard-router').get()
+       local bucket_id = router:bucket_id(profile_id)
 
        local resp, error = err_vshard_router:pcall(
-           vshard.router.call,
+           router.call,
+           router,
            bucket_id,
            'read',
            'profile_update',
@@ -551,10 +549,12 @@ local err_httpd = errors.new_class("httpd error")
    local function http_profile_get(req)
        local profile_id = tonumber(req:stash('profile_id'))
        local password = req:json().password
-       local bucket_id = vshard.router.bucket_id(profile_id)
+       local router = cartridge.service_get('vshard-router').get()
+       local bucket_id = router:bucket_id(profile_id)
 
        local resp, error = err_vshard_router:pcall(
-           vshard.router.call,
+           router.call,
+           router,
            bucket_id,
            'read',
            'profile_get',
@@ -578,10 +578,12 @@ local err_httpd = errors.new_class("httpd error")
    local function http_profile_delete(req)
        local profile_id = tonumber(req:stash('profile_id'))
        local password = req:json().password
-       local bucket_id = vshard.router.bucket_id(profile_id)
+       local router = cartridge.service_get('vshard-router').get()
+       local bucket_id = router:bucket_id(profile_id)
 
        local resp, error = err_vshard_router:pcall(
-           vshard.router.call,
+           router.call,
+           router,
            bucket_id,
            'write',
            'profile_delete',
@@ -603,8 +605,6 @@ local err_httpd = errors.new_class("httpd error")
 
    ```lua
    local function init(opts)
-       rawset(_G, 'vshard', vshard)
-
        if opts.is_master then
            box.schema.user.grant('guest',
                'read,write',
@@ -876,10 +876,7 @@ helper.assert_http_json_request = function (method, path, body, expected)
         raise = false
     })
 
-    if expected.body then
-        t.assert_equals(response.json, expected.body)
-    end
-
+    t.assert_equals(response.json, expected.body)
     t.assert_equals(response.status, expected.status)
 
     return response
@@ -923,7 +920,7 @@ end
 g.test_on_post_ok = function ()
     local user_with_password = deepcopy(test_profile)
     user_with_password.password = user_password
-    helper.assert_http_json_request('post', '/profile', user_with_password, {status=201})
+    helper.assert_http_json_request('post', '/profile', user_with_password, {body = {info = "Successfully created"}, status=201})
 end
 
 g.test_on_post_conflict = function()
