@@ -1,4 +1,3 @@
-local vshard = require('vshard')
 local cartridge = require('cartridge')
 local errors = require('errors')
 
@@ -47,11 +46,13 @@ end
 local function http_account_add(req)
     local time_stamp = os.clock()
     local account = req:json()
-	local bucket_id = vshard.router.bucket_id(account.login)
+    local router = cartridge.service_get('vshard-router').get()
+    local bucket_id = router:bucket_id(account.login)
     account.bucket_id = bucket_id
 
     local success, error = err_vshard_router:pcall(
-        vshard.router.call,
+        router.call,
+        router,
         bucket_id,
         'write',
         'account_add',
@@ -71,10 +72,12 @@ end
 local function http_account_delete(req)
     local time_stamp = os.clock()
     local login = req:stash('login')
-	local bucket_id = vshard.router.bucket_id(login)
+	local router = cartridge.service_get('vshard-router').get()
+    local bucket_id = router:bucket_id(login)
 
 	local success, error = err_vshard_router:pcall(
-        vshard.router.call,
+        router.call,
+        router,
         bucket_id,
         'read',
         'account_delete',
@@ -95,12 +98,14 @@ local function http_account_update(req)
     local time_stamp = os.clock()
 	local login = req:stash('login')
 	local field = req:stash('field')
-	local bucket_id = vshard.router.bucket_id(login)
+	local router = cartridge.service_get('vshard-router').get()
+    local bucket_id = router:bucket_id(login)
 
 	local value = req:json().value
 
 	local success, error = err_vshard_router:pcall(
-        vshard.router.call,
+        router.call,
+        router,
         bucket_id,
         'write',
         'account_update',
@@ -121,10 +126,12 @@ local function http_account_get(req)
     local time_stamp = os.clock()
 	local login = req:stash('login')
 	local field = req:stash('field')
-	local bucket_id = vshard.router.bucket_id(login)
+	local router = cartridge.service_get('vshard-router').get()
+    local bucket_id = router:bucket_id(login)
 
 	local account_data, error = err_vshard_router:pcall(
-        vshard.router.call,
+        router.call,
+        router,
         bucket_id,
         'read',
         'account_get',
@@ -142,7 +149,6 @@ local function http_account_get(req)
 end
 
 local function init(opts)
-    rawset(_G, 'vshard', vshard)
 
     if opts.is_master then
         box.schema.user.grant('guest',
