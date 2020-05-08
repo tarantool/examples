@@ -37,6 +37,8 @@ The repo is organized by directories:
   [enterprise](https://www.tarantool.io/en/product/enterprise/)
   version of Tarantool.
 
+* `cookbook` contains code snippets.
+
 Feel free to browse, try and contribute!
 
 Please submit an issue here if you have any problems with the demos.
