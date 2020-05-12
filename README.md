@@ -37,7 +37,11 @@ The repo is organized by directories:
   [enterprise](https://www.tarantool.io/en/product/enterprise/)
   version of Tarantool.
 
-* `cookbook` contains code snippets.
+* `cookbook` contains code snippets for typical cases:
+
+  * [batch processing](https://github.com/tarantool/examples/blob/master/cookbook/space/in_batches.lua)
+  * [altering the field type](https://github.com/tarantool/examples/blob/master/cookbook/migrations/alter_field_type.lua)
+  * and more snippets to arrive...
 
 Feel free to browse, try and contribute!
 
