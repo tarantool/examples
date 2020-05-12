@@ -103,7 +103,6 @@ return {
 
 ```lua
 -- api.lua
-local vshard = require('vshard')
 local cartridge = require('cartridge')
 local errors = require('errors')
 
@@ -186,36 +185,35 @@ end
    local function http_account_add(req)
        local time_stamp = os.clock()
        local account = req:json()
-       local bucket_id = vshard.router.bucket_id(account.login)
-       account.bucket_id = bucket_id
-
+       local router = cartridge.service_get('vshard-router').get()
+       local bucket_id = router:bucket_id(account.login)
+    account.bucket_id = bucket_id
+   
        local success, error = err_vshard_router:pcall(
-           vshard.router.call,
+           router.call,
+           router,
            bucket_id,
            'write',
            'account_add',
-           {account}
+        {account}
        )
-
+   
        local verification_status = verify_response(success, error, req)
        if verification_status ~= true then
-           return verification_status
+        return verification_status
        end
-
+   
        local resp = req:render({json = { info = "Account successfully created", time = os.clock() - time_stamp}})
        resp.status = 201
        return resp
-   end
+end
    ```
-
+   
    Данная функция обращается к кэшу и, если аккаунт создан, возвращает сообщение
    об успехе операции.
 
   **Примечание:** В коде выше мы использовали Lua-функцию
-  [pcall()](https://www.lua.org/manual/5.1/manual.html#pdf-pcall),
-  чтобы вызвать функцию `err_vshard_router()` в защищенном режиме: `pcall()`
-  ловит исключения, бросаемые функцией `err_vshard_router()`, и возвращает
-  статус-код, не позволяя ошибкам пробрасываться наружу.
+  [pcall()](https://www.lua.org/manual/5.1/manual.html#pdf-pcall), чтобы вызвать функцию `router.call` в защищенном режиме: `pcall()` ловит исключения, бросаемые функцией `router.call`, и возвращает ошибку `err_vshard_router`, определение которой приведено выше, не позволяя ошибкам пробрасываться наружу.
 
 2. Функция `http_account_delete` удаляет аккаунт из хранилища:
 
@@ -224,22 +222,24 @@ end
    local function http_account_delete(req)
        local time_stamp = os.clock()
        local login = req:stash('login')
-       local bucket_id = vshard.router.bucket_id(login)
-
+   	local router = cartridge.service_get('vshard-router').get()
+       local bucket_id = router:bucket_id(login)
+   
        -- вызов функции удаления аккаунта из хранилища
-       local success, error = err_vshard_router:pcall(
-           vshard.router.call,
+   	local success, error = err_vshard_router:pcall(
+           router.call,
+           router,
            bucket_id,
            'read',
            'account_delete',
            {login}
        )
-
+   
        local verification_status = verify_response(success, error, req)
        if verification_status ~= true then
            return verification_status
        end
-
+   
        local resp = req:render({json = {info = "Account deleted", time = os.clock() - time_stamp}})
        resp.status = 200
        return resp
@@ -255,28 +255,30 @@ end
        local time_stamp = os.clock()
        local login = req:stash('login')
        local field = req:stash('field')
-       local bucket_id = vshard.router.bucket_id(login)
-
+       local router = cartridge.service_get('vshard-router').get()
+    local bucket_id = router:bucket_id(login)
+   
        -- запрос значения поля
-       local account_data, error = err_vshard_router:pcall(
-           vshard.router.call,
+   	local account_data, error = err_vshard_router:pcall(
+           router.call,
+           router,
            bucket_id,
            'read',
            'account_get',
-           {login, field}
+        {login, field}
        )
-
+   
        local verification_status = verify_response(account_data, error, req)
        if verification_status ~= true then
-           return verification_status
+        return verification_status
        end
-
+   
        local resp = req:render({json = {info = account_data, time = os.clock() - time_stamp}})
        resp.status = 200
        return resp
-   end
+end
    ```
-
+   
 4. Функция `http_account_update` изменяет значение заданного поля аккаунта:
 
    ```lua
@@ -285,24 +287,26 @@ end
        local time_stamp = os.clock()
        local login = req:stash('login')
        local field = req:stash('field')
-       local bucket_id = vshard.router.bucket_id(login)
-
-       local value = req:json().value
-
+   	local router = cartridge.service_get('vshard-router').get()
+    local bucket_id = router:bucket_id(login)
+   
+    local value = req:json().value
+   
        -- обновление поля
-       local success, error = err_vshard_router:pcall(
-           vshard.router.call,
+   	local success, error = err_vshard_router:pcall(
+           router.call,
+           router,
            bucket_id,
            'write',
            'account_update',
-           {login, field, value}
+        {login, field, value}
        )
-
+   
        local verification_status = verify_response(success, error, req)
        if verification_status ~= true then
-           return verification_status
+        return verification_status
        end
-
+   
        local resp = req:render({json = {info = "Field updated", time = os.clock() - time_stamp}})
        resp.status = 200
        return resp
@@ -311,15 +315,9 @@ end
 
 Теперь назначим функции соответствующим запросам.
 
-  **Примечание:** В этом коде мы используем Lua-функцию
-  [rawset()](https://www.lua.org/manual/5.1/manual.html#pdf-rawset), чтобы
-  задать значение поля `vshard` в системном спейсе `_G`, который находится в
-  области глобальных переменных, без вызова мета-методов.
-
 ```lua
 -- api.lua
 local function init(opts)
-    rawset(_G, 'vshard', vshard)
 
     if opts.is_master then
         box.schema.user.grant('guest',
@@ -571,11 +569,6 @@ local function init(opts)
         box.schema.func.create('account_delete', {if_not_exists = true})
         box.schema.func.create('account_update', {if_not_exists = true})
         box.schema.func.create('account_get', {if_not_exists = true})
-
-        box.schema.role.grant('public', 'execute', 'function', 'account_add', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'account_delete', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'account_update', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'account_get', {if_not_exists = true})
 
     end
 

@@ -381,11 +381,6 @@ local function init(opts)
         box.schema.func.create('account_update', {if_not_exists = true})
         box.schema.func.create('account_get', {if_not_exists = true})
 
-        box.schema.role.grant('public', 'execute', 'function', 'account_add', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'account_delete', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'account_update', {if_not_exists = true})
-        box.schema.role.grant('public', 'execute', 'function', 'account_get', {if_not_exists = true})
-
     end
 
     rawset(_G, 'account_add', account_add)
