@@ -1,23 +1,24 @@
 local in_batches = require('cookbook.space.in_batches')
 
--- Say we need to change field type.
--- It's easy in the case of compatible types (ex. unsigned -> number):
--- just alter index definitions if any, and then change format.
--- However it gets trickier when values can not be casted automatically,
--- ex. casting between string, number, decimal,
--- or datetime (in the future Tarantool releases).
+-- Suppose we need to change a field type.
+-- It's easy in case of compatible types (ex. unsigned -> number):
+-- just alter index definitions, if any, and then change the format.
+-- However it gets trickier when values cannot be cast automatically,
+-- e.g. casting between string, number, decimal,
+-- or datetime (to be supported in the upcoming Tarantool releases).
 --
--- See `create_space` function for the space definition.
+-- See the `create_space` function for space definition.
 -- Three cases are covered below:
 -- - field is not indexed,
 -- - field is in the secondary index,
--- - field is the part of the primary key.
+-- - field is part of the primary key.
 --
--- Note that running such migrations in production environments requires
--- application to work correctly in initial, final and every intermediate state.
--- So while migration is in process application must cast inserted/updated
--- values according to the current state, and use appropriate index values.
--- The latest can be automated with `key_def` module.
+-- Note that running such migrations in production environments requires the
+-- application to work correctly in the initial, final, and every intermediate
+-- state.
+-- So while migration is in process, the application must cast inserted/updated
+-- values according to the current state and use appropriate index values.
+-- The latest can be automated with the `key_def` module.
 local examples = {}
 
 function examples.create_space(name)
@@ -36,12 +37,12 @@ function examples.create_secondary_index(space)
     space:create_index('secondary', {parts = {'value'}})
 end
 
--- This is the simplest one.
--- Let's say we need to change type of `value` to `string`.
+-- This is the simplest case.
+-- Suppose we need to change the type of `value` to `string`.
 function examples.alter_not_indexed(space, batch_size)
     batch_size = batch_size or 100
 
-    -- Change type to `any`, so we can store both string and numbers during migration.
+    -- Change the type to `any`, so we can store both string and numbers during migration.
     space:format({
         {'key', 'number'},
         {'value', 'any'},
@@ -52,7 +53,7 @@ function examples.alter_not_indexed(space, batch_size)
         space:update(tuple.key, {{'=', 'value', tostring(tuple.value)}})
     end)
 
-    -- Update format to finish migration.
+    -- Update the format to finish the migration.
     space:format({
         {'key', 'number'},
         {'value', 'string'},
@@ -60,13 +61,13 @@ function examples.alter_not_indexed(space, batch_size)
 end
 
 -- With Tarantool 2.2+ it's possible to perform such migrations using
--- functional indexes. However it has limitation: function for index
--- must be sandboxed. If it's not the case proceed to `alter_pk`.
+-- functional indexes. However there is a limitation: the function for
+-- the index must be sandboxed. If it's not the case, proceed to `alter_pk`.
 --
--- Let's say we need to change type of `value` to `string`, and
+-- Suppose we need to change the type of `value` to `string`, and
 -- there is a secondary index (see `create_secondary_index`).
 function examples.alter_indexed(space, batch_size)
-    -- First, create an functional index on altered field,
+    -- First, create a functional index on the altered field,
     -- so it's possible to store values of both types at the same time.
     box.schema.func.create('migration_tostring', {
         is_deterministic = true,
@@ -75,30 +76,31 @@ function examples.alter_indexed(space, batch_size)
     })
     space:create_index('secodary_new', {func = 'migration_tostring', parts = {{1, 'string'}}})
 
-    -- Replace existing index with new one.
+    -- Replace the existing index with the new one.
     space.index.secondary:drop()
     space.index.secodary_new:rename('secondary')
 
-    -- Now it's possible to alter the field the same way as if it isn't indexed.
+    -- Now it's possible to alter the field as if it wasn't indexed.
     examples.alter_not_indexed(space, batch_size)
 
-    -- Finally, replace functional index with plain one and remove temporary function.
+    -- Finally, replace the functional index with a plain one
+    -- and remove the temporary function.
     space:create_index('secodary_new', {parts = {'value'}})
     space.index.secondary:drop()
     space.index.secodary_new:rename('secondary')
     box.func.migration_tostring:drop()
 end
 
--- The most complicated case is when field is indexed but it's not possible
--- to change index to functional one.
+-- The most complicated case is when a field is indexed but it's not possible
+-- to change the index type to functional.
 --
--- Let's say we need to change type of `key` to `string`.
+-- Let's say we need to change the type of `key` to `string`.
 function examples.alter_pk(space, batch_size)
     batch_size = batch_size or 100
 
-    -- First we need duplicate the altered field.
-    -- Application must fill in the new field for inserted tuples as well,
-    -- so actually this format can be applied at the bootstrap time.
+    -- First, we need to duplicate the altered field.
+    -- The application must fill in the new field for inserted tuples as well,
+    -- so this format can actually be applied during bootstrap.
     space:format({
         {'key', 'number'},
         {'value', 'number'},
@@ -111,7 +113,7 @@ function examples.alter_pk(space, batch_size)
         end
     end)
 
-    -- Now we can make `key_number` not-nullable and rebuild index using it.
+    -- Now we can make `key_number` not-nullable and rebuild the index using it.
     space:format({
         {'key', 'number'},
         {'value', 'number'},
@@ -119,8 +121,8 @@ function examples.alter_pk(space, batch_size)
     })
     space.index.primary:alter({parts = {'key_number'}})
 
-    -- Previous step makes it possible to set type `any` for the original field
-    -- and typecast existing values.
+    -- The previous step makes it possible to set the type `any` for the
+    -- original field and typecast the existing values.
     space:format({
         {'key', 'any'},
         {'value', 'number'},
@@ -130,14 +132,14 @@ function examples.alter_pk(space, batch_size)
         space:update(tuple.key_number, {{'=', 'key', tostring(tuple.key)}})
     end)
 
-    -- Update format and rebuild index using original field.
+    -- Update the format and rebuild the index using the original field.
     space:format({
         {'key', 'string'},
         {'value', 'number'},
     })
     space.index.primary:alter({parts = {'key'}})
 
-    -- Finally, remove temporary field from all tuples.
+    -- Finally, remove the temporary field from all tuples.
     in_batches.atomic(batch_size, space:pairs(), function(tuple)
         space:update(tuple.key, {{'#', 3, 1}})
     end)

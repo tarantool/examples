@@ -4,15 +4,15 @@ local export = {}
 
 --- Run several iterations in a single transaction
 --
--- This is useful in following cases:
--- - improve performance of write operations. Combining multiple operations
---   into single transaction, makes them produce single WAL entry instead of
---   an WAL entry per each operation. In some scenarios this brings significant
+-- This is useful in the following cases:
+-- - improve the performance of write operations. Combining multiple operations
+--   into a single transaction makes them produce a single WAL entry instead of
+--   a WAL entry per each operation. In some scenarios this brings significant
 --   improvement. But don't use large batch_size to not produce large
---   WAL entries which take long time to write to disk.
--- - to keep application responsive when processing large amounts of data.
---   Lua code runs in a single thread, so all long running lua fibers
---   block the others. This can make service unresponsive for seconds
+--   WAL entries which take long to write to disk.
+-- - to keep an application responsive when processing large amounts of data.
+--   Lua code runs in a single thread, so all long-running Lua fibers
+--   block the other fibers. This can make the service irresponsive for seconds
 --   or even minutes. The solution is to give control to other fibers
 --   after several iterations.
 --
@@ -34,7 +34,7 @@ end
 
 --- Give control to other fibers after processing each batch of iterations
 --
--- See 2nd case in `atomic` function.
+-- See the 2nd case in the `atomic` function.
 --
 -- @usage yield_every(1000, space:pairs()):filter(...):reduce(...)
 -- @usage for _, tuple in yield_every(1000, space:pairs()) do ... end
