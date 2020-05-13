@@ -90,17 +90,17 @@ function export.example(batch_size, space_name)
     end)
 
 
-    -- Here is analog of SQL query:
+    -- Here is an analog of the SQL query:
     --      SELECT value, COUNT(*)
     --      FROM space
     --      WHERE MOD(key % 100) != 0
     --      GROUP BY value
     --
-    -- As it's read-only query, we can use `yield_every` with a chain
+    -- As the query is read-only, we can use `yield_every` with a chain
     -- of iterator transformations.
     --
-    -- It yields only `math.floor(count / batch_size)` because there is no
-    -- yield after the final partial batch.
+    -- It yields only `math.floor(count / batch_size)` times because there is
+    -- no yield after the final partial batch.
     return count_yields(function()
         return export.yield_every(batch_size, space:pairs()):
             filter(function(tuple) return tuple.key % 100 ~= 0 end):
