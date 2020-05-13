@@ -19,6 +19,10 @@ local in_batches = require('cookbook.space.in_batches')
 -- So while migration is in process, the application must cast inserted/updated
 -- values according to the current state and use appropriate index values.
 -- The latest can be automated with the `key_def` module.
+--
+-- Also index creation and altering is blocking before Tarantool 2.2,
+-- so some of provided examples cannot be run without downtime in production
+-- with earlier Tarantool versions.
 local examples = {}
 
 function examples.create_space(name)
