@@ -206,7 +206,7 @@ end
        local resp = req:render({json = { info = "Account successfully created", time = os.clock() - time_stamp}})
        resp.status = 201
        return resp
-end
+   end
    ```
    
    Данная функция обращается к кэшу и, если аккаунт создан, возвращает сообщение
@@ -276,7 +276,7 @@ end
        local resp = req:render({json = {info = account_data, time = os.clock() - time_stamp}})
        resp.status = 200
        return resp
-end
+   end
    ```
    
 4. Функция `http_account_update` изменяет значение заданного поля аккаунта:
