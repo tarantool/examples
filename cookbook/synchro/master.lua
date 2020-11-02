@@ -1,10 +1,12 @@
+-- Check version.
+assert(_TARANTOOL >= '2.5.1', "Tarantool version 2.5.1+ supported")
 --
 -- Set up a simple synchronous replication master.
 --
 box.cfg{
-    listen=3301,
+    listen='127.0.0.1:3301',
     -- We usually use full-mesh topology even for master-replica installations.
-    replication={3301,3302},
+    replication={'127.0.0.1:3301', '127.0.0.1:3302'},
     -- Synchronous replication quorum. The transaction is committed only after
     -- being applied on two instances (master and replica).
     replication_synchro_quorum=2,
