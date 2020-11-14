@@ -1,4 +1,4 @@
-## What is this?
+# What is this?
 This example demonstrates leader election set up and a simple failover
 script.
 This example runs a cluster of 3 tarantool instances with leader election
@@ -10,7 +10,7 @@ All the insertions are done to a synchronous space named `test`.
 
 ## Disclaimer
 
-### Synchronous replication and leader election are currently in beta state.
+### Synchronous replication and leader election are currently in beta state. You may get the latest tarantool version [here](https://www.tarantool.io/en/download/)
 ### If you face any issues with these features, please file a bug [here](https://github.com/tarantool/tarantool/issues/)
 
 ## How to run
