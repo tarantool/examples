@@ -8,7 +8,7 @@ instances finish leader election and continues relaying data on a new leader.
 
 All the insertions are done to a synchronous space named `test`.
 
-### Disclaimer
+## Disclaimer
 
 ### Synchronous replication and leader election are currently in beta state.
 ### If you face any issues with these features, please file a bug [here](https://github.com/tarantool/tarantool/issues/)
