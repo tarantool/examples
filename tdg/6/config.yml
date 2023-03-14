@@ -1,0 +1,39 @@
+types:
+  __file: model.avsc
+
+services:
+  sendkafka:
+    function: kafka_service.call
+    return_type: ["null","string"]
+    args:
+        input: string
+
+connector:
+  input:
+    - name: http
+      type: http
+    - name: kafka
+      type: kafka
+      brokers:
+        - kafka-broker:9092
+      topics:
+        - in.test.topic
+      group_id: kafka
+      options:
+        enable.auto.offset.store: "true"
+        auto.offset.reset: "latest"
+        enable.partition.eof: "false"
+        security.protocol: "plaintext"
+
+  output:
+    - name: to_kafka
+      type: kafka
+      brokers:
+        - kafka-broker:9092
+      topic: out.test.topic
+      group_id: kafka
+      options:
+        enable.auto.offset.store: "true"
+        auto.offset.reset: "latest"
+        enable.partition.eof: "false"
+        security.protocol: "plaintext"

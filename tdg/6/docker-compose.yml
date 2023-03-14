@@ -1,0 +1,43 @@
+version: '2.1'
+
+services:
+  datagrid:
+    container_name: tdg2
+    image: tdg:2.6.1-0-g1c1b9863
+    ports:
+      - "8080:8080"
+      - "3301:3301"
+    networks:
+      - examplekafka
+
+  zookeeper-server:
+    container_name: zookeeper-server
+    hostname: zookeeper-server
+    image: 'bitnami/zookeeper:3.8.0'
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    networks:
+      - examplekafka
+
+  kafka-broker:
+    container_name: kafka-broker
+    hostname: kafka-broker
+    image: 'bitnami/kafka:3.0.0'
+    ports:
+      - "29092:29092"
+      - "39092:39092"
+      - "9092:9092"
+    environment:
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper-server:2181
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT,VAGRANT:PLAINTEXT
+      - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:29092,VAGRANT://:39092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=CLIENT://:9092,EXTERNAL://localhost:29092,VAGRANT://172.17.0.1:39092
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=CLIENT
+    networks:
+      - examplekafka
+
+networks:
+  examplekafka:
+    external: true

@@ -1,0 +1,44 @@
+$ssh_pub_key = File.readlines("#{Dir.home}/.ssh/id_rsa.pub").first.strip
+$root = File.dirname(__FILE__)
+
+$script = <<-SCRIPT
+set -e
+
+echo #{$ssh_pub_key} >> /home/vagrant/.ssh/authorized_keys
+
+yum update -y
+yum install -y yum-utils
+yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+yum install -y docker-ce docker-ce-cli containerd.io
+
+SCRIPT
+
+Vagrant.configure("2") do |config|
+  config.vbguest.installer_options = { allow_kernel_upgrade: true }
+
+  config.vm.provider "virtualbox" do |v|
+    v.cpus = 2
+    v.memory = 2048
+    v.customize ["modifyvm", :id, "--audio", "none"]
+  end
+
+  config.vm.define "examplekafka" do |cfg|
+    cfg.vm.box = "centos/7"
+    cfg.vm.hostname = 'examplekafka'
+
+    cfg.vm.synced_folder ".", "/vagrant", disabled: true
+    cfg.vm.synced_folder $root, $root, name: "project_dir", automount: true
+    cfg.vm.synced_folder '.', '/app', name: "app", automount: true
+
+    cfg.vbguest.installer_options = { allow_kernel_upgrade: true }
+
+    cfg.vm.network "forwarded_port", guest: 8080, host: 28080, id: "datagrid_28080_http"
+    cfg.vm.network "forwarded_port", guest: 3301, host: 23301, id: "datagrid_23301_cmd"
+
+    cfg.vm.network "forwarded_port", guest: 2181,  host: 2181, id: "zookeper"
+    cfg.vm.network "forwarded_port", guest: 9092,  host: 9092,  id: "kafka"
+    cfg.vm.network "forwarded_port", guest: 29092, host: 29092, id: "kafka"
+  end
+
+  config.vm.provision :shell, inline: $script
+end
