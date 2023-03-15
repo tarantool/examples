@@ -1,24 +1,24 @@
 [
     {
-    	"type": "record",
-    	"name": "test_space",
-    	"fields": [
-    		{
-    			"name": "id",
-    			"type": "long"
-    		},
-    		{
-    		    "name": "space_field_data",
-    			"type": ["null","string"]
-    		}
-    	],
-    	"indexes": [
-    		{
-    	    	"name": "pk",
-    			"parts": [
-    				"id"
-    			]
-    		}
-    	]
+        "type": "record",
+        "name": "test_space",
+        "fields": [
+            {
+                "name": "id",
+                "type": "long"
+            },
+            {
+                "name": "space_field_data",
+                "type": ["null","string"]
+            }
+        ],
+        "indexes": [
+            {
+                "name": "pk",
+                "parts": [
+                    "id"
+                ]
+            }
+        ]
     }
 ]
