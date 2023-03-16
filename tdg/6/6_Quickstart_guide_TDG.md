@@ -8,7 +8,7 @@
 [Zookeeper](https://zookeeper.apache.org/) и брокер (сервер) Kafka. Контейнеры развернуты с помощью 
 [Docker Compose](https://docs.docker.com/compose/).
 
-Пример можно использовать в качестве песочницы, если возникла необходимость воспроизвести в тестовом режиме ошибки, 
+Пример можно использовать в качестве песочницы, если вы хотите воспроизвести в тестовом режиме ошибки, 
 связанные с Kafka.
 
 ## Установка и запуск Vagrant
@@ -31,9 +31,9 @@
     vagrant ssh
     ```
 
-## Подготовка к запуску Docker-контейнеров
+## Подготовка и запуск Docker-контейнеров
 
-1. Установите необходимые пакеты:
+Установите необходимые пакеты:
 
     ```
     sudo su
@@ -45,25 +45,93 @@
     docker network create examplekafka
     ```
 
-2. Подготовьте Docker-образ для TDG:
-Скачайте образ из AWS 
-    - Прописываем креды для AWS
+Далее скачайте Docker-образ для TDG из AWS:
+
+- Пропишите credentials для AWS:
+
     ```
     export AWS_ACCESS_KEY_ID=
     export AWS_SECRET_ACCESS_KEY=
     ```
-    - Качаем сборку
+
+- Скачайте сборку:
+    
     ```
     aws s3 --endpoint-url="https://hb.bizmrg.com" cp s3://packages/tdg2/tdg-2.6.1-0-g1c1b9863-docker-image.tar.gz /tmp
     ```
-    - Устанавливаем
+
+- Загрузите образ TDG:
+
     ```
     sudo su
     cd /tmp
     docker load -i ./tdg-2.6.1-0-g1c1b9863-docker-image.tar.gz
     ```
-   
-## Запуск TDG
+
+## Кафка и ТДГ в контейнерах
+
+Чтобы сгенерировать SSL-сертификаты в контейнере `zookeeper-server`, выполните следующие команды:
+
+```
+sudo su
+cd /app
+mkdir truststore
+mkdir keystore
+chmod 777 ./truststore ./keystore
+
+docker-compose up -d zookeeper-server
+docker exec -it zookeeper-server bash -c "cd /app && ./generatecert.sh"
+```
+
+Эти команды запустят контейнер `zookeeper-server` и запустят скрипт для генерации SSL-сертификатов.
+
+После этого запустите остальные контейнеры:
+
+```
+docker-compose up -d
+```
+-----------
+
+* Заходим в тдг и конфигурируем инстансы
+http://localhost:28080/admin/cluster/dashboard
+(Не забудьте сделать бутстрап)
+* Проверяем что кафка работает через Offset Explorer
+    Создаем топики:
+    1. in.test.topik
+    2. in.test.processor
+    3. out.test.topik 
+* Применяем рабочий конфиг
+```
+cd /app/cont/configwork
+python3 ./setconfig.py
+```
+* отправляем сообщение
+```
+echo "{\"test_space\":{\"id\":1,\"space_field_data\":\"test\"}}" |docker exec -i kafka-broker /opt/bitnami/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic in.test.topik
+```
+* Проверяем что сообщение появилось в кафке in.test.topik 
+* проверяем что сообщение появилось в спейсе
+    http://localhost:28080/admin/tdg/repl
+    ``` {test_space(pk:1){id,space_field_data}} ```
+* Шлем сообщение в кафку
+    http://localhost:28080/admin/tdg/repl
+    ``` {sendkafka(input: "test")}```
+* Проверяем что сообщение появилось в кафке в топике out.test.topik 
+* Проверяем сообщения которые должны попадать в сервис src/kafka_service.lua -> processor
+    - отправляем сообщение tokafka = true
+    ```
+    echo "{\"id\":2,\"space_field_data\":\"test2\",\"tokafka\":true}" |docker exec -i kafka-broker /opt/bitnami/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic in.test.processor
+    ```
+    - Проверяем что сообщение появилось в кафке в топике out.test.topik
+    - отправляем сообщение tokafka = tospase
+    ```
+    echo "{\"id\":3,\"space_field_data\":\"test3\",\"tospase\":true}" |docker exec -i kafka-broker /opt/bitnami/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic in.test.processor
+    ```
+    - проверяем что сообщение появилось в спейсе
+    http://localhost:28080/admin/tdg/repl
+    ``` {test_space(pk:3){id,space_field_data}} ```
+
+## Запуск чистого TDG
 
 Разверните контейнер с TDG, используя Docker Compose:
 
@@ -218,3 +286,18 @@ return {
 `Configuration files`, нажмите на кнопку `Upload a new config` и загрузите архив. Файлы будут распакованы и применены.
 
 В этом примере для загрузки рекомендуется использовать скрипт.
+
+
+**Как воспроизвести ошибку**
+
+#.  :ref:`Подключитесь <troubleshoot-kafka-offset-explorer>` к Kafka c помощью Offset Explorer.
+#.  Сразу после создания кластера, когда ошибок еще нет, список топиков в кластере будет пустой.
+    Чтобы воспроизвести ошибку, отправьте в топик сообщение, добавляющее новую запись в топик.
+    Для развернутого примера отправим новый кортеж в топик ``in.test.topic`` в спейс ``test_space``:
+
+    ..  code-block:: bash
+
+        echo "{\"test_space\":{\"id\":1,\"space_field_data\":\"test\}}" |docker exec -i kafka-broker /opt/bitnami/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic in.test.topiс
+
+#.  Если топика ``in.test.topic`` не существовало на момент отправки, возникнет ошибка о неизвестном топике.
+
