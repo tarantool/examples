@@ -279,7 +279,7 @@ return {
 
 Чтобы загрузить файлы конфигурации в TDG, воспользуйтесь одним из способов ниже:
 
-* В папке с примером №6 находится скрипт `setconfig.py`. Чтобы загрузить конфигурацию, запустите этот скрипт, используя
+* В папке с примером находится скрипт `setconfig.py`. Чтобы загрузить конфигурацию, запустите этот скрипт, используя
 следующую команду:
 
       ```
@@ -345,46 +345,51 @@ keytool -importkeystore -srckeystore ./kafka-broker1.server.keystore.jks -destke
 
 Проверьте, что Kafka работает через приложение Offset Explorer.
 Чтобы проверить это, создайте в Offset Explorer следующие топики:
-1. `in.test.topic`
-2. `in.test.processor`
-3. `out.test.topic`
+* `in.test.topic`
+* `in.test.processor`
+* `out.test.topic`
 
-Примените рабочую конфигурацию для TDG:
+После этого загрузите рабочую конфигурацию для TDG:
 
 ```
-cd /app/cont/configwork
+cd /app
 python3 ./setconfig.py
 ```
+
+## Отправка сообщения в топик
 
 Отправьте сообщение в топик `in.test.topic`:
 ```
 echo "{\"test_space\":{\"id\":1,\"space_field_data\":\"test\"}}" |docker exec -i kafka-broker /opt/bitnami/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic in.test.topic
 ```
-
-После отправки сообщения проверьте, что сообщение появилось
-- в Offset Explorer в топике `in.test.topic`
-- в спейсе (http://localhost:28080/admin/tdg/repl)
+После отправки сообщения проверьте, что новая запись в спейсе `test_space` (`id = 1`, `space_field_data = test`) появилась 
+* в Offset Explorer в топике `in.test.topic`;
+* в веб-интерфейсе TDG. Чтобы проверить это, отправьте
+во [вкладке Graphql](http://localhost:28080/admin/tdg/repl) в веб-интерфейсе следующий запрос:
     ``` {test_space(pk:1){id,space_field_data}} ```
 
-Далее отправьте напрямую сообщение в Kafka:
+## Отправка сообщения напрямую в Kafka
 
-    http://localhost:28080/admin/tdg/repl
-    ``` {sendkafka(input: "test")}```
+Чтобы отправить сообщение, откройте
+[вкладку Graphql](http://localhost:28080/admin/tdg/repl) в веб-интерфейсе и введите следующий запрос:
 
-Проверьте, что сообщение появилось в Offset Explorer в топике `in.test.topic`.
+``` {sendkafka(input: "test")}```
 
-Проверьте сообщения, которые должны попадать в сервис `src/kafka_service.lua` -> `processor`. Для этого:
-    - отправляем сообщение tokafka = true
+Проверьте, что сообщение появилось в приложении Offset Explorer в топике `in.test.topic`.
+
+Проверьте сообщения, которые должны попадать в сервис `src/kafka_service.lua` в функцию `processor`. Чтобы проверить это,
+выполните следующие действия:
+
+1. Отправьте сообщение `tokafka = true`:
     ```
     echo "{\"id\":2,\"space_field_data\":\"test2\",\"tokafka\":true}" |docker exec -i kafka-broker /opt/bitnami/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic in.test.processor
+    ``` 
+2. Проверьте, что сообщение появилось в Kafka в топике `out.test.topic`
+3. Отправьте сообщение `tokafka = tospaсe`
     ```
-    - Проверяем что сообщение появилось в кафке в топике out.test.topik
-    - отправляем сообщение tokafka = tospase
+    echo "{\"id\":3,\"space_field_data\":\"test3\",\"tospaсe\":true}" |docker exec -i kafka-broker /opt/bitnami/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic in.test.processor
     ```
-    echo "{\"id\":3,\"space_field_data\":\"test3\",\"tospase\":true}" |docker exec -i kafka-broker /opt/bitnami/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic in.test.processor
-    ```
-    - проверяем что сообщение появилось в спейсе
-    http://localhost:28080/admin/tdg/repl
+4. Проверьте, что сообщение появилось в спейсе в [веб-интерфейсе TDG](http://localhost:28080/admin/tdg/repl).
     ``` {test_space(pk:3){id,space_field_data}} ```
 
 # Воспроизведение ошибок, связанных с Kafka
@@ -433,8 +438,6 @@ Failed to resolve 'kafka-broker:9091': Name or service not known
     ```
    
 3. Если топика ``in.test.topic`` не существовало на момент отправки, возникнет ошибка о неизвестном топике.
-
-
 
 ## Запуск чистого TDG
 
