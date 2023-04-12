@@ -1,17 +1,43 @@
 Пример №6 - Взаимодействие с Kafka
 
-# Подготовка к работе
+В примере описано, как настроить подключение к Kafka и проверить его
+в приложении [Kafka Offset Explorer](https://www.kafkatool.com/download.html).
+Кроме того, пример можно использовать в качестве песочницы, если вы хотите воспроизвести в тестовом режиме ошибки,
+возникающие при [работе с Kafka](https://www.tarantool.io/ru/tdg/latest/development/kafka/troubleshoot-kafka/).
 
-Для запуска примера используется виртуальная машина CentOS 7, поднятая c использованием [Vagrant](https://www.vagrantup.com).
+Содержание:
+
+1. [Развертывание](#deployment)
+    1. [Настройка виртуальной машины](#vm-setup)
+    2. [Подготовка Docker-контейнеров](#docker-setup)
+       1. [Загрузка Docker-образа](#docker-load)
+       2. [Генерация SSL-сертификатов и запуск Docker-контейнеров](#ssl-gen)
+2. [Конфигурация TDG](#tdg-config)
+    1. [Доменная модель](#data-model)
+    2. [Конфигурация](#config-file)
+    3. [Исполняемые файлы](#lua-files)
+        1. [Сервис](#lua-files1)
+        2. [Обработчик](#lua-files2)
+    4. [Загрузка конфигурации](#load-config)
+3. [Установка и настройка Offset Explorer](#offset-exp-install)
+   1. [Настройка Offset Explorer без SSL](#offset-exp-setup)
+   2. [Настройка Offset Explorer c SSL](#offset-exp-setup-ssl)
+4. [Работа в Offset Explorer](#offset-explorer)
+    1. [Отправка сообщения в топик](#offset-exp-sendtotopic)
+    2. [Отправка сообщения напрямую в Kafka](#offset-exp-sendtokafka)
+5. [Воспроизведение ошибок, связанных с Kafka](#troubleshooting)
+    1. [Неверно указан брокер](#kafka-broker)
+    2. [Несуществующий топик или раздел](#kafka-topic)
+    
+# Развертывание <a name="deployment"></a>
+
+В руководстве для запуска примера используется виртуальная машина CentOS 7, поднятая c использованием [Vagrant](https://www.vagrantup.com).
 
 В примере описаны три контейнера, которые нужны для минимальной настройки подключения к Kafka, — Tarantool Data Grid,
 [Zookeeper](https://zookeeper.apache.org/) и брокер (сервер) Kafka. Контейнеры развернуты с помощью 
 [Docker Compose](https://docs.docker.com/compose/).
 
-Пример можно использовать в качестве песочницы, если вы хотите воспроизвести в тестовом режиме ошибки, возникающие при
-[взаимодействии с Kafka](https://www.tarantool.io/ru/tdg/latest/development/kafka/troubleshoot-kafka/).
-
-## Установка и запуск Vagrant
+## Настройка виртуальной машины <a name="vm-setup"></a>
 
 1. Установите [VirtualBox](https://www.virtualbox.org/) и [Vagrant](https://www.vagrantup.com/).
 2. В папке с примером находится файл конфигурации `Vagrantfile`. Перейдите в директорию с этим файлом:
@@ -32,9 +58,9 @@
     vagrant ssh
     ```
 
-## Подготовка Docker-контейнеров
+## Подготовка Docker-контейнеров <a name="docker-setup"></a>
 
-### Настройка Docker-образа
+### Загрузка Docker-образа <a name="docker-load"></a>
 
 Установите необходимые пакеты:
 
@@ -71,7 +97,7 @@ docker network create examplekafka
     docker load -i ./tdg-2.6.1-0-g1c1b9863-docker-image.tar.gz
     ```
 
-### Генерация SSL-сертификатов и запуск Docker-контейнеров
+### Генерация SSL-сертификатов и запуск Docker-контейнеров <a name="ssl-gen"></a>
 
 Перед началом работы сгенерируйте SSL-сертификаты в контейнере `zookeeper-server`. Для этого выполните следующие команды:
 
@@ -94,7 +120,7 @@ docker exec -it zookeeper-server bash -c "cd /app && ./generatecert.sh"
 docker-compose up -d
 ```
 
-## Запуск и конфигурация TDG
+## Конфигурация TDG <a name="tdg-config"></a>
 
 1. После запуска Docker-контейнеров откройте [веб-интерфейс TDG](http://localhost:28080/admin/cluster/dashboard).
 2. Назначьте роли в кластере TDG. Подробнее о настройке кластера можно прочитать
@@ -102,14 +128,14 @@ docker-compose up -d
 3. После настройки кластера нажмите кнопку **Bootstrap vshard**, чтобы инициализировать распределённое хранилище данных.
 
 Чтобы завершить настройку TDG, нужно:
-* задать доменную модель;
+* задать доменную модель и конфигурацию;
 * загрузить конфигурацию и исполняемый код для обработки данных в TDG.
 
 В конфигурационном файле нужно указать все необходимые данные, включая ссылки на другие файлы.
 После файл конфигурации и все упомянутые в нем файлы загружаются в TDG.
 Ниже пошагово демонстрируется процесс настройки файлов, необходимых для примера, и их загрузка в TDG. 
 
-### Доменная модель
+## Доменная модель <a name="data-model"></a>
 
 Создайте файл `model.avsc`:
 
@@ -145,7 +171,7 @@ docker-compose up -d
 * `id` — идентификатор записи;
 * `space_field_data` — данные кортежа.
 
-### Конфигурация
+## Конфигурация <a name="config-file"></a>
 
 Создайте конфигурационный файл `config.yml`. В файле задаются основные параметры
 обработки данных:
@@ -225,30 +251,52 @@ input_processor:
 
 ```
 
-### Исполняемые файлы
+## Исполняемые файлы <a name="lua-files"></a>
 
-#### Обработчик
+### Сервис <a name="lua-files1"></a>
 
-Создайте файл `kafka_service.lua`:
+Создайте сервис `kafka_service.lua`:
 
 ```lua
 local log = require('log')
 local json = require('json')
+local repository = require('repository')
 
 local connector = require('connector')
 
 local function call(par)
-    log.info(json.encode(par))
+    log.info("input: %s", json.encode(par))
     connector.send("to_kafka", par, {})
     return "ok"
 end
 
+local function processor(par)
+    log.info("input: %s", json.encode(par))
+    if next(par) and next(par.obj) and par.obj.id and par.obj.space_field_data then
+        local data = {
+            id = par.obj.id,
+            space_field_data = par.obj.space_field_data
+        }
+
+        if par.obj.tokafka==true then
+            connector.send("to_kafka", data, {})
+        end
+        if par.obj.tospace==true then
+            local ok, err = repository.put('test_space', data)
+            log.info("put answ: %s, err: %s", json.encode(ok), err)
+        end
+    else
+        log.error("Broken data %s", json.encode(par.obj))
+    end
+    return true
+end
 return {
     call = call,
+    processor = processor
 }
 ```
 
-#### Обработчик
+### Обработчик <a name="lua-files2"></a>
 
 Создайте файл `kafka_utils.lua`:
 
@@ -267,7 +315,7 @@ return {
 }
 ```
 
-### Загрузка конфигурации
+## Загрузка конфигурации <a name="load-config"></a>
 
 Чтобы загрузить файлы конфигурации в TDG, воспользуйтесь одним из способов ниже:
 
@@ -285,7 +333,7 @@ return {
 
 Для экономии времени в примере для загрузки рекомендуется использовать скрипт `setconfig.py`.
 
-## Установка и настройка Offset Explorer
+# Установка и настройка Offset Explorer <a name="offset-exp-install"></a>
 
 Чтобы облегчить работу с Kafka, установите приложение [Kafka Offset Explorer](https://www.kafkatool.com/download.html).
 В приложении можно просматривать данные кластеров -- топики, брокеры, объекты и сообщения в топиках.
@@ -295,7 +343,7 @@ Offset Explorer позволяет проверить соединение с к
 Установив приложение, следуйте [инструкции](https://www.kafkatool.com/documentation/connecting.html) по подключению к
 Kafka.
 
-### Настройка Offset Explorer без SSL
+## Настройка Offset Explorer без SSL <a name="offset-exp-setup"></a>
 
 В окне `Add Cluster` задайте настройки во вкладках `Properties` и `Advanced`:
 
@@ -309,7 +357,7 @@ Kafka.
 2. Во вкладке `Advanced` для поля `Bootstrap servers` укажите номер порта, который используется для внешнего соединения.
    Задайте для поля значение `127.0.0.1:29092`.
 
-### Настройка Offset Explorer с SSL
+## Настройка Offset Explorer с SSL <a name="offset-exp-setup-ssl"></a>
 
 Перед добавлением кластера в Offset Explorer может понадобиться переконфигурировать jks-ключи:
 
@@ -333,7 +381,7 @@ keytool -importkeystore -srckeystore ./kafka-broker1.server.keystore.jks -destke
 3. Во вкладке `Advanced` для поля `Bootstrap servers` укажите номер порта, который используется для внешнего соединения.
    Задайте для поля значение `127.0.0.1:39092`.
 
-# Работа в Offset Explorer
+# Работа в Offset Explorer <a name="offset-explorer"></a>
 
 Перед началом работы проверьте, что Kafka работает через приложение Offset Explorer.
 Чтобы проверить это, создайте в Offset Explorer следующие топики:
@@ -341,14 +389,14 @@ keytool -importkeystore -srckeystore ./kafka-broker1.server.keystore.jks -destke
 * `in.test.processor`
 * `out.test.topic`
 
-После этого загрузите рабочую конфигурацию для TDG:
+После загрузите рабочую конфигурацию для TDG:
 
 ```
 cd /app
 python3 ./setconfig.py
 ```
 
-## Отправка сообщения в топик
+## Отправка сообщения в топик <a name="offset-exp-sendtotopic"></a>
 
 Отправьте сообщение в топик `in.test.topic`:
 ```
@@ -362,9 +410,9 @@ echo "{\"test_space\":{\"id\":1,\"space_field_data\":\"test\"}}" |docker exec -i
     {test_space(pk:1){id,space_field_data}}
     ```
 
-## Отправка сообщения напрямую в Kafka
+## Отправка сообщения напрямую в Kafka <a name="offset-exp-sendtokafka"></a>
 
-Чтобы отправить сообщение, откройте
+Отправьте сообщение в Kafka, используя сервис `src/kafka_service.lua`. Для этого откройте
 [вкладку Graphql](http://localhost:28080/admin/tdg/repl) в веб-интерфейсе и введите следующий запрос:
 ```
 {sendkafka(input: "test")}
@@ -390,9 +438,9 @@ echo "{\"test_space\":{\"id\":1,\"space_field_data\":\"test\"}}" |docker exec -i
     {test_space(pk:3){id,space_field_data}}
     ```
 
-# Воспроизведение ошибок
+# Воспроизведение ошибок <a name="troubleshooting"></a>
 
-## Неверно указан брокер
+## Неверно указан брокер <a name="kafka-broker"></a>
 
 Чтобы узнать больше об этой ошибке, обратитесь к [соответствующему разделу](https://www.tarantool.io/en/tdg/latest/development/kafka/troubleshoot-kafka/#troubleshoot-kafka-broker) в документации TDG.
 
@@ -424,7 +472,7 @@ Failed to resolve 'kafka-broker:9091': Name or service not known
 
 4. Поднимите кластер по адресу `localhost:28080/admin`. Добавьте в кластере роли и сделайте `Bootstrap`.
 
-## Несуществующий топик или раздел
+## Несуществующий топик или раздел <a name="kafka-topic"></a>
 
 Чтобы узнать больше об этой ошибке, обратитесь
 к [соответствующему разделу](https://www.tarantool.io/en/tdg/latest/development/kafka/troubleshoot-kafka/#troubleshoot-kafka-unknown-topic)

@@ -21,7 +21,7 @@ local function processor(par)
         if par.obj.tokafka==true then
             connector.send("to_kafka", data, {})
         end
-        if par.obj.tospase==true then
+        if par.obj.tospace==true then
             local ok, err = repository.put('test_space', data)
             log.info("put answ: %s, err: %s", json.encode(ok), err)
         end
