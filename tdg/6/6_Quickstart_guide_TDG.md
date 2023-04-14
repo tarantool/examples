@@ -501,5 +501,5 @@ Failed to resolve 'kafka-broker:9091': Name or service not known
     конфигурации ``config.yml``;
 
 *   ``KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE`` в параметре брокера ``environment`` в файле конфигурации
-    Docker-контейнеров (:file:`docker-compose.yml`).
+    Docker-контейнеров (`docker-compose.yml`).
     Значение ``true``  для параметра разрешает автоматическое создание топиков.
