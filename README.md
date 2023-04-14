@@ -32,7 +32,6 @@ The repo is organized by directories:
   3. Creating a service
   4. Changing the data model
   5. Using affinities to process related data on a single node
-  6. Getting started with Kafka and troubleshooting Kafka connection
 
   These examples are based on the
   [enterprise](https://www.tarantool.io/en/product/enterprise/)
@@ -44,6 +43,6 @@ The repo is organized by directories:
   * [altering the field type](https://github.com/tarantool/examples/blob/master/cookbook/migrations/alter_field_type.lua)
   * and more snippets to arrive...
 
-Feel free to browse, try, and contribute!
+Feel free to browse, try and contribute!
 
 Please submit an issue here if you have any problems with the demos.
