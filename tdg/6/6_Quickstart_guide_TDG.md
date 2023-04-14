@@ -322,10 +322,10 @@ return {
 * В папке с примером находится скрипт `setconfig.py`. Чтобы загрузить конфигурацию, запустите этот скрипт, используя
 следующую команду:
 
-      ```
-      cd /app
-      python3 ./setconfig.py
-      ```
+  ```
+  cd /app
+  python3 ./setconfig.py
+  ```
 
 * Создайте папку `src` и поместите в нее файл со скриптом обработчика (`kafka_service.lua`). Упакуйте файлы
 `model.avsc`,`config.yml` и созданную папку `src` в архив формата ZIP. В веб-интерфейсе TDG перейдите на вкладку
@@ -480,7 +480,7 @@ Failed to resolve 'kafka-broker:9091': Name or service not known
 
 **Как воспроизвести ошибку**
 
-1. Подключитесь к Kafka c помощью Offset Explorer без SSl. 
+1. Подключитесь к Kafka c помощью Offset Explorer без SSL. 
 2. Сразу после создания кластера, когда ошибок еще нет, список топиков в кластере будет пустой.
 Чтобы воспроизвести ошибку, отправьте в топик сообщение, добавляющее новую запись в топик.
 Отправьте новый кортеж в топик ``in.test.topic`` в спейс ``test_space``:
@@ -494,7 +494,7 @@ Failed to resolve 'kafka-broker:9091': Name or service not known
 **Как исправить ошибку**
 
 Алгоритм решения проблемы указан в документации TDG в разделе
-[Неизвестный топик или раздел](https://www.tarantool.io/en/tdg/latest/development/kafka/troubleshoot-kafka/#troubleshoot-kafka-unknown-topic)
+[Неизвестный топик или раздел](https://www.tarantool.io/en/tdg/latest/development/kafka/troubleshoot-kafka/#troubleshoot-kafka-unknown-topic).
 При проверке разрешения на автоматическое создание топиков обратите внимание на следующие параметры:
 
 *   ``allow.auto.create.topics`` в секции коннектора ``input`` в файле
